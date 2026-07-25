@@ -790,6 +790,18 @@
     render();
   }
 
+  function deleteStockItem(code){
+    const item = findInCatalog(code);
+    if(!item) return;
+    const msg = item.qty > 0
+      ? '¿Eliminar "'+item.code+' — '+item.desc+'" del stock? Todavía tiene '+item.qty+' unidades registradas. Esta acción no se puede deshacer.'
+      : '¿Eliminar "'+item.code+' — '+item.desc+'" del stock? Esta acción no se puede deshacer.';
+    if(!confirm(msg)) return;
+    state.catalog = state.catalog.filter(m => m.code.toLowerCase() !== code.toLowerCase());
+    saveCatalog();
+    render();
+  }
+
   // ---------- Add / Return ----------
   function addEntryToTarget(target, code, desc, qty){
     const existing = target.servido.find(e => e.code.toLowerCase() === code.toLowerCase());
@@ -1288,6 +1300,7 @@
           <span class="stock-loc ${m.location?'set':'unset'}">📍 ${m.location || 'Sin ubicar'}</span>
           <span class="stock-qty ${m.qty>0?'ok':'low'}">${m.qty}</span>
           <button class="cam-btn" style="padding:6px 10px; font-size:11px;" data-loc-btn="${m.code}">Cambiar ubicación</button>
+          <button class="btn-return" style="padding:6px 10px; font-size:11px;" data-del-btn="${m.code}">🗑 Eliminar</button>
         </div>
       </div>
     `).join('');
@@ -1317,6 +1330,9 @@
 
     el.querySelectorAll('[data-loc-btn]').forEach(btn=>{
       btn.addEventListener('click', ()=> changeLocation(btn.dataset.locBtn));
+    });
+    el.querySelectorAll('[data-del-btn]').forEach(btn=>{
+      btn.addEventListener('click', ()=> deleteStockItem(btn.dataset.delBtn));
     });
     $('#addManualBtn').addEventListener('click', ()=>{
       addManualStock($('#mCode').value, $('#mDesc').value, $('#mQty').value, $('#mLoc').value);
