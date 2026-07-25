@@ -24,6 +24,29 @@
     --lcd-green:#FFD84D;
     --border:#2C2F38;
   }
+  /* cada sección tiene su propio color de acento, para saber de un vistazo en cuál estoy.
+     el de Almacén es el dorado de siempre (el color de marca); Montaje y Proyecto son
+     variaciones dentro de la misma familia para que no choquen entre sí */
+  #app.mode-almacen{
+    --accent:#F5C518;
+    --accent-dim:#8A6A0C;
+    --accent-soft:rgba(245,197,24,0.14);
+  }
+  #app.mode-montaje{
+    --accent:#FF9640;
+    --accent-dim:#8A4B15;
+    --accent-soft:rgba(255,150,64,0.14);
+  }
+  #app.mode-proyecto{
+    --accent:#4FD1C5;
+    --accent-dim:#1F6E66;
+    --accent-soft:rgba(79,209,197,0.14);
+  }
+  #app.mode-pedido{
+    --accent:#C084FC;
+    --accent-dim:#6B3FA0;
+    --accent-soft:rgba(192,132,252,0.14);
+  }
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;background:transparent; overflow-x:hidden; max-width:100%;}
   body{
@@ -367,7 +390,7 @@
   .movement-row .m-code{color:var(--accent); font-weight:700; font-family:ui-monospace,monospace;}
   .movement-row .m-desc{color:var(--text-muted); grid-column:1/3;}
   .movement-row .m-origin{color:var(--text-faint); font-size:11px; grid-column:1/3;}
-  .tag-entrada, .tag-salida{
+  .tag-entrada, .tag-salida, .tag-eliminado{
     padding:2px 7px;
     border-radius:5px;
     font-size:10px;
@@ -377,6 +400,7 @@
   }
   .tag-entrada{background:var(--success-soft); color:var(--success);}
   .tag-salida{background:var(--danger-soft); color:var(--danger);}
+  .tag-eliminado{background:var(--bg-raised-2); color:var(--text-muted);}
 
   .panel-title{
     font-family:"Arial Black",Arial,sans-serif;
@@ -435,6 +459,27 @@
     border:1px solid var(--accent-dim);
   }
 
+  .global-search{
+    background:var(--bg-panel);
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:10px;
+    margin-bottom:14px;
+  }
+  .global-search input{
+    width:100%;
+    background:var(--bg-raised);
+    border:1px solid var(--border);
+    color:var(--text-primary);
+    padding:12px 14px;
+    border-radius:8px;
+    font-size:14px;
+  }
+  .global-search input:focus{border-color:var(--accent); outline:none;}
+  #globalSearchResults{max-height:280px; overflow-y:auto;}
+  #globalSearchResults .stock-row{padding:8px 4px;}
+  #globalSearchResults .stock-row:last-child{border-bottom:none;}
+
   ::-webkit-scrollbar{width:8px;}
   ::-webkit-scrollbar-thumb{background:var(--bg-raised-2); border-radius:4px;}
 
@@ -485,7 +530,7 @@
     h1{font-size:20px;}
     .subtitle{font-size:12px;}
     .mode-bar{flex-wrap:wrap;}
-    .mode-btn{font-size:11px; padding:10px 4px; flex-basis:31%;}
+    .mode-btn{font-size:11px; padding:10px 4px; flex-basis:48%;}
     .project-bar{flex-direction:column; align-items:stretch;}
     .project-bar select, .project-bar input[type=text]{width:100%; min-width:0;}
     .project-bar .pill-current{align-self:flex-start;}
@@ -493,6 +538,7 @@
     #scanInput{font-size:17px; min-width:0; width:100%;}
     .qty-box{width:100%;}
     .cam-btn{width:100%; padding:10px;}
+    #scanSubmitBtn{width:100%; padding:10px 0;}
     .unknown-box{flex-direction:column; align-items:stretch;}
     .unknown-box input{width:100%;}
 
@@ -541,6 +587,8 @@
   <div class="autosave-note" id="autosaveNote"><span class="autosave-dot"></span> Todo se guarda automáticamente en este dispositivo — stock, montaje y proyectos.</div>
 
   <div id="alertBanner" class="alert-banner" style="display:none;"></div>
+
+  <div id="globalSearchZone"></div>
 
   <div id="statusBanner" class="status-banner"></div>
 
@@ -686,6 +734,7 @@
     current: { montaje: null, proyecto: null }, // nombre del grupo activo en cada modo
     groupData: {},            // clave "montaje::Nombre" / "proyecto::Nombre" -> {servido:[], devuelto:[]}
     bobinas: [],              // [{id, desc, matricula, expira:'YYYY-MM-DD', createdAt}]
+    pedidoItems: [],          // [{id, code, desc, qty}] - el listado que voy montando para pedir material
     settings: {               // esto lo configuro yo mismo desde el panel de avisos
       bobinaAvisoDias: 3,     // con cuántos días de margen quiero que me avise antes de la fecha de devolución
       stockBajoUmbral: 2,     // a partir de qué cantidad considero que el stock está bajo
@@ -696,6 +745,7 @@
   };
   let pendingUnknownCode = null;
   let catalogSearchTerm = '';
+  let globalSearchTerm = ''; // el buscador de arriba de todo, funciona en cualquier sección
   let listView = 'servido'; // 'servido' | 'devuelto' — which sub-list is shown in Montaje/Proyecto
   const GROUP_LABELS = { montaje: 'orden', proyecto: 'proyecto' };
   const GROUP_LABELS_CAP = { montaje: 'Orden', proyecto: 'Proyecto' };
@@ -704,6 +754,9 @@
   const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2,7);
   const nowStr = () => new Date().toLocaleString('es-ES');
   const slug = s => s.trim().toLowerCase().replace(/[^a-z0-9]+/g,'-');
+  // esto lo necesito porque si un código o un nombre trae comillas, < o & rompe el HTML
+  // que monto a mano y luego los botones dejan de encontrar el artículo (bug que tuve)
+  const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 
   function showStatus(msg){
     const b = $('#statusBanner');
@@ -773,14 +826,15 @@
   }
 
   async function loadAll(){
-    const [catalog, movements, groupsMontaje, groupsProyecto, oldLists, oldProjects, appState, bobinas, settings, alerts] = await Promise.all([
+    const [catalog, movements, groupsMontaje, groupsProyecto, oldLists, oldProjects, appState, bobinas, settings, alerts, pedidoItems] = await Promise.all([
       safeGet('catalog'), safeGet('movements'), safeGet('groups_montaje'), safeGet('groups_proyecto'),
       safeGet('lists'), safeGet('projects'), safeGet('app_state'),
-      safeGet('bobinas'), safeGet('settings'), safeGet('alerts_state')
+      safeGet('bobinas'), safeGet('settings'), safeGet('alerts_state'), safeGet('pedido_items')
     ]);
     if(catalog) state.catalog = catalog.map(m => ({code:m.code, desc:m.desc, qty: typeof m.qty==='number'?m.qty:0, location:m.location||''}));
     if(movements) state.movements = movements;
     if(bobinas) state.bobinas = bobinas;
+    if(pedidoItems) state.pedidoItems = pedidoItems;
     if(settings) state.settings = Object.assign({}, state.settings, settings);
     if(alerts) state.alerts = alerts;
     if(groupsMontaje) state.groups.montaje = groupsMontaje;
@@ -838,6 +892,7 @@
   function saveGroups(kind){ safeSet('groups_'+kind, state.groups[kind]); }
   function saveGroupData(kind, name){ safeSet('group_'+kind+'_'+slug(name), state.groupData[kind+'::'+name]); }
   function saveBobinas(){ safeSet('bobinas', state.bobinas); }
+  function savePedido(){ safeSet('pedido_items', state.pedidoItems); }
   function saveSettings(){ safeSet('settings', state.settings); }
   function saveAlerts(){ safeSet('alerts_state', state.alerts); }
 
@@ -855,7 +910,7 @@
     if(name) saveGroupData(state.mode, name);
   }
   function originLabel(){
-    if(state.mode === 'montaje') return 'Montaje: '+(state.current.montaje||'');
+    if(state.mode === 'montaje') return 'Montaje/Venta: '+(state.current.montaje||'');
     if(state.mode === 'proyecto') return 'Proyecto: '+(state.current.proyecto||'');
     return 'Almacén';
   }
@@ -895,6 +950,9 @@
       ? '¿Eliminar "'+item.code+' — '+item.desc+'" del stock? Todavía tiene '+item.qty+' unidades registradas. Esta acción no se puede deshacer.'
       : '¿Eliminar "'+item.code+' — '+item.desc+'" del stock? Esta acción no se puede deshacer.';
     if(!confirm(msg)) return;
+    // antes de borrarla del todo dejo constancia en el historial de que existió y con cuántas unidades se quedó
+    state.movements.unshift({id:uid(), code:item.code, desc:item.desc, qty:item.qty, type:'eliminado', origin:'Almacén (referencia eliminada)', ts:nowStr()});
+    saveMovements();
     state.catalog = state.catalog.filter(m => m.code.toLowerCase() !== code.toLowerCase());
     saveCatalog();
     render();
@@ -924,6 +982,45 @@
     render();
   }
 
+  // ---------- Pedido de materiales (listado que mando por correo, no toca el stock) ----------
+  function addToPedido(code, desc, qty){
+    const existente = state.pedidoItems.find(it => it.code.toLowerCase() === code.toLowerCase());
+    if(existente) existente.qty += qty;
+    else state.pedidoItems.push({id:uid(), code, desc, qty});
+    savePedido();
+    render();
+  }
+
+  function removePedidoItem(id){
+    state.pedidoItems = state.pedidoItems.filter(it => it.id !== id);
+    savePedido();
+    render();
+  }
+
+  function clearPedido(){
+    if(!state.pedidoItems.length) return;
+    if(!confirm('¿Vaciar el pedido? Se perderá el listado actual.')) return;
+    state.pedidoItems = [];
+    savePedido();
+    render();
+  }
+
+  function sendPedidoEmail(){
+    if(!state.pedidoItems.length){ showStatus('El pedido está vacío, añade algún material primero.'); return; }
+    if(!hasEmailJS || !state.settings.emailDestino){
+      showStatus('Configura el correo de EmailJS y el email de destino (en Almacén → Avisos) antes de poder enviar el pedido.');
+      return;
+    }
+    if(!confirm('¿Enviar este pedido por correo? El listado se vaciará después de enviarlo.')) return;
+    let msg = 'Pedido de materiales solicitado:\n\n';
+    state.pedidoItems.forEach(it => { msg += '- '+it.code+' · '+it.desc+' · '+it.qty+' uds\n'; });
+    sendEmailAlert('Pedido de materiales', msg);
+    state.pedidoItems = [];
+    savePedido();
+    showStatus('Pedido enviado por correo.');
+    render();
+  }
+
   // días que faltan para la fecha (negativo = ya venció)
   function daysUntil(dateStr){
     const hoy = new Date(); hoy.setHours(0,0,0,0);
@@ -942,6 +1039,14 @@
   }
 
   function todayStr(){ return new Date().toISOString().slice(0,10); }
+
+  // para no repetir este ternario en cada sitio donde muestro el tipo de movimiento
+  function movTypeLabel(type){
+    if(type==='entrada') return 'Entrada';
+    if(type==='salida') return 'Salida';
+    if(type==='eliminado') return 'Eliminado';
+    return type;
+  }
 
   // esto es el aviso de "fin de día": lo compruebo al cargar la página y cada 5 min mientras
   // esté abierta, pero solo actúa de verdad una vez que ha pasado la hora que configuré y
@@ -1007,6 +1112,20 @@
       return;
     }
 
+    if(state.mode === 'pedido'){
+      // aquí solo miro contra el stock para sacar la descripción, no lo descuento de nada
+      const match = findInCatalog(code);
+      if(!match){
+        showStatus('El código "'+code+'" no está en el stock, así que no lo puedo añadir al pedido.');
+      }else{
+        addToPedido(match.code, match.desc, qty);
+        showStatus('Añadido al pedido: '+qty+' · '+match.code);
+      }
+      $('#scanInput').value = '';
+      $('#scanInput').focus();
+      return;
+    }
+
     const target = currentTarget();
     if(!target){ showStatus('Selecciona '+(state.mode==='montaje'?'una orden de montaje':'un proyecto')+' antes de escanear.'); return; }
     const g = findGroup(state.mode, state.current[state.mode]);
@@ -1015,16 +1134,24 @@
       return;
     }
     const match = findInCatalog(code);
-    if(match){
-      addEntryToTarget(target, match.code, match.desc, qty);
-      persistCurrentTarget();
-      adjustStock(match.code, match.desc, qty, 'salida', originLabel());
-      pendingUnknownCode = null;
-      render();
-    }else{
-      pendingUnknownCode = {code, qty, ctx:'salida'};
-      renderScannerZone();
+    // no dejo servir nada que no tenga stock, ni tampoco más cantidad de la que realmente hay
+    if(!match || match.qty <= 0){
+      showStatus('No se puede servir "'+code+'" — no queda stock (0 unidades). Dalo de alta en Almacén primero.');
+      $('#scanInput').value = '';
+      $('#scanInput').focus();
+      return;
     }
+    if(qty > match.qty){
+      showStatus('Solo quedan '+match.qty+' unidad(es) de "'+match.code+'" en stock — no se puede servir más de eso.');
+      $('#scanInput').value = '';
+      $('#scanInput').focus();
+      return;
+    }
+    addEntryToTarget(target, match.code, match.desc, qty);
+    persistCurrentTarget();
+    adjustStock(match.code, match.desc, qty, 'salida', originLabel());
+    pendingUnknownCode = null;
+    render();
     $('#scanInput').value = '';
     $('#scanInput').focus();
   }
@@ -1036,17 +1163,11 @@
     if(!desc){ showStatus('Escribe una descripción para el material.'); return; }
     const locInput = $('#unknownLoc');
     const location = locInput ? (locInput.value || '').trim() : '';
-    const {code, qty, ctx} = pendingUnknownCode;
-    if(ctx === 'almacen'){
-      state.catalog.push({code, desc, qty:0, location});
-      adjustStock(code, desc, qty, 'entrada', 'Almacén (escaneo)');
-    }else{
-      state.catalog.push({code, desc, qty:0, location});
-      const target = currentTarget();
-      addEntryToTarget(target, code, desc, qty);
-      persistCurrentTarget();
-      adjustStock(code, desc, qty, 'salida', originLabel());
-    }
+    const {code, qty} = pendingUnknownCode;
+    // esto solo puede llegar aquí desde Almacén (entrada), ya que en Montaje/Proyecto
+    // ahora bloqueo directamente si el código no tiene stock, así que no hace falta el ctx
+    state.catalog.push({code, desc, qty:0, location});
+    adjustStock(code, desc, qty, 'entrada', 'Almacén (escaneo)');
     pendingUnknownCode = null;
     render();
     $('#scanInput').focus();
@@ -1196,14 +1317,15 @@
     await loadAllGroupData('montaje');
     await loadAllGroupData('proyecto');
     const backup = {
-      version: 3,
+      version: 4,
       exportedAt: nowStr(),
       catalog: state.catalog,
       movements: state.movements,
       groups: state.groups,
       groupData: state.groupData,
       bobinas: state.bobinas,
-      settings: state.settings
+      settings: state.settings,
+      pedidoItems: state.pedidoItems
     };
     const blob = new Blob([JSON.stringify(backup, null, 2)], {type:'application/json'});
     const url = URL.createObjectURL(blob);
@@ -1245,6 +1367,7 @@
         });
         if(data.bobinas){ state.bobinas = data.bobinas; saveBobinas(); }
         if(data.settings){ state.settings = Object.assign({}, state.settings, data.settings); saveSettings(); }
+        if(data.pedidoItems){ state.pedidoItems = data.pedidoItems; savePedido(); }
         showStatus('Copia de seguridad restaurada correctamente.');
         render();
       }catch(err){
@@ -1263,7 +1386,7 @@
       .map(m => ({Código:m.code, Descripción:m.desc, Ubicación:m.location||'', 'Stock actual':m.qty}));
     const movRows = state.movements.map(m => ({
       Código:m.code, Descripción:m.desc, Cantidad:m.qty,
-      Tipo: m.type==='entrada'?'Entrada':'Salida', Origen:m.origin, Fecha:m.ts
+      Tipo: movTypeLabel(m.type), Origen:m.origin, Fecha:m.ts
     }));
     const bobinaRows = state.bobinas
       .slice()
@@ -1374,13 +1497,61 @@
 
   // ---------- Render ----------
   function render(){
+    const appEl = document.getElementById('app');
+    if(appEl) appEl.className = 'mode-' + state.mode; // esto es lo que hace que cada sección tenga su color
     renderAlertBanner();
+    renderGlobalSearch();
     renderModeBar();
     renderGroupBar();
     renderScannerZone();
     if(state.mode === 'almacen') renderStockMain();
+    else if(state.mode === 'pedido') renderPedidoMain();
     else renderMainList();
     renderSidePanel();
+  }
+
+  // el buscador de arriba de todo — funciona igual estés en Montaje, Almacén, Proyecto o Pedido
+  function renderGlobalSearch(){
+    const zone = $('#globalSearchZone');
+    if(!zone) return;
+    zone.innerHTML = `
+      <div class="global-search">
+        <input type="text" id="globalStockSearch" placeholder="🔍 Buscar en el stock por código o referencia…" value="${esc(globalSearchTerm)}">
+        <div id="globalSearchResults"></div>
+      </div>
+    `;
+    const input = $('#globalStockSearch');
+    input.addEventListener('input', e=>{
+      globalSearchTerm = e.target.value;
+      renderGlobalSearchResults();
+    });
+    renderGlobalSearchResults();
+  }
+
+  function renderGlobalSearchResults(){
+    const box = $('#globalSearchResults');
+    if(!box) return;
+    const term = globalSearchTerm.trim().toLowerCase();
+    if(!term){ box.innerHTML = ''; return; }
+    const matches = state.catalog.filter(m =>
+      m.code.toLowerCase().includes(term) || m.desc.toLowerCase().includes(term)
+    );
+    if(!matches.length){
+      box.innerHTML = '<div style="padding:10px 4px; color:var(--text-faint); font-size:12.5px;">Sin coincidencias en el stock.</div>';
+      return;
+    }
+    box.innerHTML = matches.slice(0,15).map(m => `
+      <div class="stock-row">
+        <div class="row-main">
+          <div class="row-code">${esc(m.code)}</div>
+          <div class="row-desc">${esc(m.desc)}</div>
+        </div>
+        <div class="row-actions">
+          <span class="stock-loc ${m.location?'set':'unset'}">📍 ${esc(m.location)||'Sin ubicar'}</span>
+          <span class="stock-qty ${m.qty>0?'ok':'low'}">${m.qty}</span>
+        </div>
+      </div>
+    `).join('') + (matches.length>15 ? `<div style="padding:6px 4px; color:var(--text-faint); font-size:11.5px;">+${matches.length-15} más… afina la búsqueda.</div>` : '');
   }
 
   // el aviso que quiero que salte cada vez que entro en cualquier apartado, si hay algo pendiente
@@ -1403,7 +1574,7 @@
 
   function renderModeBar(){
     const bar = $('#modeBar');
-    const modes = [['montaje','Montaje'],['almacen','Almacén (Stock)'],['proyecto','Proyecto']];
+    const modes = [['montaje','Montaje/Venta'],['almacen','Almacén (Stock)'],['proyecto','Proyecto'],['pedido','Pedido']];
     bar.innerHTML = modes.map(([k,label]) =>
       `<button class="mode-btn ${state.mode===k?'active':''}" data-mode="${k}">${label}</button>`
     ).join('');
@@ -1430,7 +1601,7 @@
       <div class="project-bar">
         <select id="groupSelect">
           <option value="">${selectLabel}</option>
-          ${state.groups[kind].map(g=>`<option value="${g.name}" ${g.name===currentName?'selected':''}>${g.name}${g.status==='finalizado'?' (Finalizado)':''}</option>`).join('')}
+          ${state.groups[kind].map(g=>`<option value="${esc(g.name)}" ${g.name===currentName?'selected':''}>${esc(g.name)}${g.status==='finalizado'?' (Finalizado)':''}</option>`).join('')}
         </select>
         <input type="text" id="newGroupInput" placeholder="${newLabel}">
         <button class="cam-btn" id="createGroupBtn">+ Crear</button>
@@ -1462,24 +1633,29 @@
     const currentGroup = currentName ? findGroup(groupKind, currentName) : null;
     const groupFinalizado = !!(currentGroup && currentGroup.status==='finalizado');
     const disabled = (groupKind && !currentName) || groupFinalizado;
-    const placeholder = (groupKind && !currentName) ? 'Selecciona '+(groupKind==='montaje'?'una orden de montaje':'un proyecto')+' para escanear…'
+    const placeholder = (groupKind && !currentName) ? 'Selecciona '+(groupKind==='montaje'?'una orden de montaje/venta':'un proyecto')+' para escanear…'
       : groupFinalizado ? (groupKind==='montaje'?'Orden finalizada':'Proyecto finalizado')+' — reactívala para seguir registrando…'
       : state.mode==='almacen' ? 'Escanea para registrar una entrada de stock…'
+      : state.mode==='pedido' ? 'Escanea o introduce el código para añadirlo al pedido…'
       : 'Escanea o introduce el código…';
     const hint = state.mode==='almacen'
       ? 'Cada código escaneado aquí suma unidades al stock (entrada). Para material desconocido, te pedirá una descripción.'
+      : state.mode==='pedido'
+      ? 'Cada código añade esa cantidad al pedido — esto no descuenta stock, es solo un listado para pedir y mandar por correo.'
       : 'Cada código escaneado aquí resta unidades del stock (salida) y queda registrado en esta lista.';
+    const submitLabel = state.mode==='almacen' ? '+ Entrada' : state.mode==='pedido' ? '+ Añadir' : '✓ Servir';
     zone.innerHTML = `
       <div class="scanner-panel">
         <div class="scanner-row">
           <input id="scanInput" type="text" placeholder="${placeholder}" ${disabled?'disabled':''} autocomplete="off">
           <input id="qtyInput" class="qty-box" type="number" min="1" value="1" title="Cantidad" ${disabled?'disabled':''}>
           <button class="cam-btn" id="camBtn" ${disabled?'disabled':''}>📷 Cámara</button>
+          <button class="btn primary" id="scanSubmitBtn" style="width:auto; padding:0 18px; margin:0;" ${disabled?'disabled':''}>${submitLabel}</button>
         </div>
-        <div class="scan-hint">${hint} · Funciona con lector USB/Bluetooth (Enter) o cámara del móvil.</div>
+        <div class="scan-hint">${hint} · Funciona con lector USB/Bluetooth (Enter), cámara del móvil, o escribiendo el código a mano y pulsando "${submitLabel}".</div>
         ${pendingUnknownCode ? `
           <div class="unknown-box">
-            <span>Código <strong>${pendingUnknownCode.code}</strong> no está en el stock.</span>
+            <span>Código <strong>${esc(pendingUnknownCode.code)}</strong> no está en el stock.</span>
             <input id="unknownDesc" type="text" placeholder="Descripción del material…">
             <input id="unknownLoc" type="text" placeholder="Ubicación (opcional)…">
             <button class="cam-btn" id="confirmUnknownBtn">Añadir y registrar</button>
@@ -1494,6 +1670,8 @@
       });
       if(!disabled) input.focus();
     }
+    const submitBtn = $('#scanSubmitBtn');
+    if(submitBtn) submitBtn.addEventListener('click', ()=> handleScan(input.value));
     const camBtn = $('#camBtn');
     if(camBtn) camBtn.addEventListener('click', ()=> openCamera(handleScan));
     const confirmBtn = $('#confirmUnknownBtn');
@@ -1506,8 +1684,8 @@
   }
 
   function listLabel(){
-    if(state.mode==='montaje') return state.current.montaje ? 'Orden: '+state.current.montaje : 'Orden de montaje';
-    return state.current.proyecto ? 'Proyecto: '+state.current.proyecto : 'Proyecto';
+    if(state.mode==='montaje') return state.current.montaje ? 'Montaje/Venta: '+esc(state.current.montaje) : 'Orden de montaje/venta';
+    return state.current.proyecto ? 'Proyecto: '+esc(state.current.proyecto) : 'Proyecto';
   }
 
   function renderStockMain(){
@@ -1521,14 +1699,14 @@
     const rows = items.map(m => `
       <div class="stock-row">
         <div class="row-main">
-          <div class="row-code">${m.code}</div>
-          <div class="row-desc">${m.desc}</div>
+          <div class="row-code">${esc(m.code)}</div>
+          <div class="row-desc">${esc(m.desc)}</div>
         </div>
         <div class="row-actions">
-          <span class="stock-loc ${m.location?'set':'unset'}">📍 ${m.location || 'Sin ubicar'}</span>
+          <span class="stock-loc ${m.location?'set':'unset'}">📍 ${esc(m.location) || 'Sin ubicar'}</span>
           <span class="stock-qty ${m.qty>0?'ok':'low'}">${m.qty}</span>
-          <button class="cam-btn" style="padding:6px 10px; font-size:11px;" data-loc-btn="${m.code}">Cambiar ubicación</button>
-          <button class="btn-return" style="padding:6px 10px; font-size:11px;" data-del-btn="${m.code}">🗑 Eliminar</button>
+          <button class="cam-btn" style="padding:6px 10px; font-size:11px;" data-loc-btn="${esc(m.code)}">Cambiar ubicación</button>
+          <button class="btn-return" style="padding:6px 10px; font-size:11px;" data-del-btn="${esc(m.code)}">🗑 Eliminar</button>
         </div>
       </div>
     `).join('');
@@ -1603,8 +1781,8 @@
       return `
         <div class="stock-row">
           <div class="row-main">
-            <div class="row-code">${b.codigo||'—'} · ${b.matricula}</div>
-            <div class="row-desc">${b.desc}</div>
+            <div class="row-code">${esc(b.codigo)||'—'} · ${esc(b.matricula)}</div>
+            <div class="row-desc">${esc(b.desc)}</div>
             <div class="row-ts">Devolver antes del ${b.expira} — ${diasTexto}</div>
           </div>
           <div class="row-actions">
@@ -1641,6 +1819,36 @@
     `;
   }
 
+  function renderPedidoMain(){
+    const el = $('#mainList');
+    const rows = state.pedidoItems.map(it => `
+      <div class="ticket-row" data-id="${it.id}">
+        <div class="row-main">
+          <div class="row-code">${esc(it.code)}</div>
+          <div class="row-desc">${esc(it.desc)}</div>
+        </div>
+        <div class="row-qty">x${it.qty}</div>
+        <button class="btn-return" data-pedido-del="${it.id}">🗑 Quitar</button>
+      </div>
+    `).join('');
+
+    el.innerHTML = `
+      <div class="ticket">
+        <div class="ticket-header">
+          <span class="ticket-title">Pedido de materiales</span>
+          <span class="ticket-title">${state.pedidoItems.length} referencias</span>
+        </div>
+        <div class="ticket-body">
+          ${rows || '<div class="empty-state">Todavía no has añadido nada al pedido. Escanea o busca un material del stock para empezar.</div>'}
+        </div>
+      </div>
+    `;
+
+    el.querySelectorAll('[data-pedido-del]').forEach(btn=>{
+      btn.addEventListener('click', ()=> removePedidoItem(btn.dataset.pedidoDel));
+    });
+  }
+
   function renderMainList(){
     const el = $('#mainList');
     const target = currentTarget();
@@ -1662,8 +1870,8 @@
       const rows = target.devuelto.map(e => `
         <div class="devuelto-row">
           <div>
-            <div class="row-code" style="font-size:13px;">${e.code}</div>
-            <div style="color:var(--text-muted);">${e.desc}</div>
+            <div class="row-code" style="font-size:13px;">${esc(e.code)}</div>
+            <div style="color:var(--text-muted);">${esc(e.desc)}</div>
             <div class="row-ts">Entregado: ${e.deliveredAt || '—'}</div>
           </div>
           <span class="tag-devuelto">x${e.qty}</span>
@@ -1685,8 +1893,8 @@
       const rows = target.servido.map(e => `
         <div class="ticket-row" data-id="${e.id}">
           <div class="row-main">
-            <div class="row-code">${e.code}</div>
-            <div class="row-desc">${e.desc}</div>
+            <div class="row-code">${esc(e.code)}</div>
+            <div class="row-desc">${esc(e.desc)}</div>
             <div class="row-ts">Entregado: ${e.firstTs || e.ts}${e.ts && e.firstTs && e.ts!==e.firstTs ? ' · Actualizado: '+e.ts : ''}</div>
           </div>
           <div class="row-qty">x${e.qty}</div>
@@ -1732,11 +1940,11 @@
       const refsBajo = state.catalog.filter(m => m.qty <= 0).length;
       const movRows = state.movements.slice(0,10).map(m => `
         <div class="movement-row">
-          <span class="tag-${m.type}">${m.type==='entrada'?'Entrada':'Salida'}</span>
-          <span class="m-code">${m.code} <span style="color:var(--text-faint);">x${m.qty}</span></span>
+          <span class="tag-${m.type}">${movTypeLabel(m.type)}</span>
+          <span class="m-code">${esc(m.code)} <span style="color:var(--text-faint);">x${m.qty}</span></span>
           <span style="color:var(--text-faint); font-size:11px;">${m.ts}</span>
-          <span class="m-desc">${m.desc}</span>
-          <span class="m-origin">${m.origin}</span>
+          <span class="m-desc">${esc(m.desc)}</span>
+          <span class="m-origin">${esc(m.origin)}</span>
         </div>
       `).join('');
 
@@ -1833,6 +2041,26 @@
       return;
     }
 
+    if(state.mode === 'pedido'){
+      const totalUds = state.pedidoItems.reduce((a,it)=>a+it.qty,0);
+      el.innerHTML = `
+        <div class="panel">
+          <p class="panel-title">Resumen del pedido</p>
+          <div class="stat-row"><span>Referencias</span><span class="num">${state.pedidoItems.length}</span></div>
+          <div class="stat-row"><span>Unidades totales</span><span class="num">${totalUds}</span></div>
+        </div>
+        <div class="panel">
+          <p class="panel-title">Enviar</p>
+          <button class="btn primary" id="sendPedidoBtn">📧 Enviar pedido por correo</button>
+          <button class="btn ghost-danger" id="clearPedidoBtn">Vaciar pedido</button>
+          <p style="font-size:11.5px; color:var(--text-faint); margin-top:8px;">Se envía al correo configurado en Almacén → panel "Avisos"${state.settings.emailDestino ? ' ('+state.settings.emailDestino+')' : ' — todavía no has puesto ninguno'}.</p>
+        </div>
+      `;
+      $('#sendPedidoBtn').addEventListener('click', sendPedidoEmail);
+      $('#clearPedidoBtn').addEventListener('click', clearPedido);
+      return;
+    }
+
     // Montaje / Proyecto side panel
     const target = currentTarget();
     const totalServido = target ? target.servido.reduce((a,e)=>a+e.qty,0) : 0;
@@ -1901,8 +2129,8 @@
     }
     box.innerHTML = matches.slice(0,25).map(m => `
       <div style="display:flex; justify-content:space-between; gap:8px; padding:6px 0; border-bottom:1px dashed var(--border); font-size:12.5px;">
-        <span class="row-code" style="font-size:12px;">${m.code}</span>
-        <span style="color:var(--text-muted); text-align:right;">${m.desc} · 📍${m.location||'sin ubicar'} · <strong style="color:${m.qty>0?'var(--success)':'var(--danger)'};">${m.qty}</strong></span>
+        <span class="row-code" style="font-size:12px;">${esc(m.code)}</span>
+        <span style="color:var(--text-muted); text-align:right;">${esc(m.desc)} · 📍${esc(m.location)||'sin ubicar'} · <strong style="color:${m.qty>0?'var(--success)':'var(--danger)'};">${m.qty}</strong></span>
       </div>
     `).join('') + (matches.length>25 ? `<div style="color:var(--text-faint); font-size:11.5px; padding-top:4px;">+${matches.length-25} más…</div>` : '');
   }
