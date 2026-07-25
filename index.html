@@ -5,22 +5,22 @@
 <title>Control de Materiales</title>
 <style>
   :root{
-    --bg-base:#14161A;
-    --bg-panel:#1E2126;
-    --bg-raised:#262A31;
-    --bg-raised-2:#2E333B;
-    --accent:#FFB020;
-    --accent-dim:#8A5E12;
-    --accent-soft:rgba(255,176,32,0.12);
+    --bg-base:#0B0D12;
+    --bg-panel:#15171D;
+    --bg-raised:#1E2129;
+    --bg-raised-2:#282C36;
+    --accent:#F5C518;
+    --accent-dim:#8A6A0C;
+    --accent-soft:rgba(245,197,24,0.14);
     --success:#4CD98A;
     --success-soft:rgba(76,217,138,0.12);
     --danger:#FF5D5D;
     --danger-soft:rgba(255,93,93,0.12);
-    --text-primary:#EDEEF0;
-    --text-muted:#868D99;
-    --text-faint:#565C66;
-    --lcd-green:#39FF6A;
-    --border:#33383F;
+    --text-primary:#F2F0E8;
+    --text-muted:#8A8D97;
+    --text-faint:#565A66;
+    --lcd-green:#FFD84D;
+    --border:#2C2F38;
   }
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;background:transparent;}
@@ -50,7 +50,7 @@
     letter-spacing:.02em;
     font-size:26px;
     margin:0 0 2px 0;
-    color:var(--text-primary);
+    color:var(--accent);
   }
   .subtitle{color:var(--text-muted);font-size:13px;margin:0 0 18px 0;}
 
@@ -143,8 +143,8 @@
   #scanInput{
     flex:1;
     min-width:200px;
-    background:#0B1A0E;
-    border:1px solid #1E4A2A;
+    background:#1A1400;
+    border:1px solid #4A3900;
     color:var(--lcd-green);
     font-family:ui-monospace,"SF Mono",Consolas,monospace;
     font-size:20px;
@@ -154,8 +154,8 @@
     caret-color:var(--lcd-green);
     outline:none;
   }
-  #scanInput::placeholder{color:#1E4A2A;}
-  #scanInput:focus{border-color:var(--lcd-green);box-shadow:0 0 0 3px rgba(57,255,106,0.12);}
+  #scanInput::placeholder{color:#4A3900;}
+  #scanInput:focus{border-color:var(--lcd-green);box-shadow:0 0 0 3px rgba(245,197,24,0.14);}
   .qty-box{
     width:74px;
     background:var(--bg-raised);
@@ -317,6 +317,16 @@
   .stock-row:last-child{border-bottom:none;}
   .stock-row .row-code{font-size:13px;}
   .stock-row .row-desc{font-size:12.5px; color:var(--text-muted); margin-top:2px;}
+  .stock-row .row-actions{display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end;}
+  .stock-loc{
+    font-size:11.5px;
+    color:var(--text-muted);
+    background:var(--bg-raised);
+    padding:4px 8px;
+    border-radius:6px;
+    white-space:nowrap;
+  }
+  .stock-loc.unset{color:var(--text-faint); font-style:italic;}
   .stock-qty{
     font-family:ui-monospace,"SF Mono",Consolas,monospace;
     font-weight:700;
@@ -339,6 +349,7 @@
   }
   .manual-stock-form input[name="mCode"]{flex:1; min-width:90px;}
   .manual-stock-form input[name="mDesc"]{flex:2; min-width:140px;}
+  .manual-stock-form input[name="mLoc"]{flex:1.4; min-width:130px;}
   .manual-stock-form input[name="mQty"]{width:80px;}
 
   .movement-row{
@@ -413,13 +424,64 @@
 
   ::-webkit-scrollbar{width:8px;}
   ::-webkit-scrollbar-thumb{background:var(--bg-raised-2); border-radius:4px;}
+
+  .autosave-note{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    color:var(--text-faint);
+    font-size:11px;
+    margin:-8px 0 14px 0;
+  }
+  .autosave-dot{width:6px; height:6px; border-radius:50%; background:var(--success); flex:none;}
+
+  .backup-row{display:flex; gap:8px; flex-wrap:wrap;}
+  .backup-row .btn{flex:1; min-width:120px;}
+
+  /* ---------- Responsive (mobile) ---------- */
+  @media (max-width: 760px){
+    body{padding:0;}
+    #app{padding:12px; border-radius:0; max-width:100%;}
+    h1{font-size:20px;}
+    .subtitle{font-size:12px;}
+    .mode-bar{flex-wrap:wrap;}
+    .mode-btn{font-size:11px; padding:10px 4px; flex-basis:31%;}
+    .project-bar{flex-direction:column; align-items:stretch;}
+    .project-bar select, .project-bar input[type=text]{width:100%; min-width:0;}
+    .project-bar .pill-current{align-self:flex-start;}
+    .scanner-row{flex-direction:column;}
+    #scanInput{font-size:17px; min-width:0; width:100%;}
+    .qty-box{width:100%;}
+    .cam-btn{width:100%; padding:10px;}
+    .unknown-box{flex-direction:column; align-items:stretch;}
+    .unknown-box input{width:100%;}
+
+    .cols{flex-direction:column;}
+    .col-main, .col-side{width:100%; min-width:0;}
+
+    .ticket-row{grid-template-columns:1fr; row-gap:8px;}
+    .ticket-row .row-qty{justify-self:start;}
+    .ticket-row .return-qty, .ticket-row .btn-return{display:inline-block;}
+
+    .stock-row{flex-direction:column; align-items:stretch; gap:8px;}
+    .stock-row .row-actions{justify-content:space-between;}
+
+    .devuelto-row{grid-template-columns:1fr auto;}
+    .devuelto-row span:last-child{grid-column:1/3; font-size:10.5px;}
+
+    .movement-row{font-size:11.5px;}
+    .manual-stock-form{flex-direction:column;}
+    .manual-stock-form input{width:100%;}
+    .backup-row{flex-direction:column;}
+  }
 </style>
 </head>
 <body>
 <div id="app">
-  <p class="eyebrow">Almacén / Picking</p>
+  <p class="eyebrow">Tecnomat · Almacén / Picking</p>
   <h1>Control de materiales</h1>
   <p class="subtitle">Escanea el código de barras generado desde Excel para registrar cada material.</p>
+  <div class="autosave-note" id="autosaveNote"><span class="autosave-dot"></span> Todo se guarda automáticamente en este dispositivo — stock, montaje y proyectos.</div>
 
   <div id="statusBanner" class="status-banner"></div>
 
@@ -439,15 +501,43 @@
   <button class="btn ghost-danger" style="width:auto;padding:8px 20px;" id="camClose">Cerrar cámara</button>
 </div>
 
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
 (function(){
+
+  // ---------- Firebase (opcional — para compartir el stock entre varios dispositivos) ----------
+  // 1. Crea un proyecto gratuito en https://console.firebase.google.com
+  // 2. Activa "Firestore Database" (modo producción) dentro del proyecto.
+  // 3. Ve a Configuración del proyecto (⚙) → tus apps → añade una app Web → copia el objeto de configuración.
+  // 4. Pega ese objeto aquí abajo, sustituyendo los valores de ejemplo.
+  // Si lo dejas tal cual (sin rellenar), la app sigue funcionando con guardado local (localStorage).
+  const firebaseConfig = {
+    apiKey: "AIzaSyDIsRvCzSJeQ0ftK9DhMl8SAVPBlx9IKEc",
+    authDomain: "almacenamiento-datos-40e38.firebaseapp.com",
+    projectId: "almacenamiento-datos-40e38",
+    storageBucket: "almacenamiento-datos-40e38.firebasestorage.app",
+    messagingSenderId: "901796174695",
+    appId: "1:901796174695:web:767991d98b3383c186edc2"
+  };
+
+  let db = null;
+  let hasFirebase = false;
+  try{
+    if(firebaseConfig.apiKey && firebaseConfig.apiKey !== 'TU_API_KEY' && typeof firebase !== 'undefined'){
+      firebase.initializeApp(firebaseConfig);
+      db = firebase.firestore();
+      hasFirebase = true;
+    }
+  }catch(e){ hasFirebase = false; }
+  const FIRESTORE_COLLECTION = 'tecnomat_materiales';
 
   // ---------- State ----------
   let state = {
     mode: 'almacen', // 'montaje' | 'almacen' | 'proyecto'
     currentProject: null,
-    catalog: [],           // [{code, desc, qty}]  qty = stock actual
+    catalog: [],           // [{code, desc, qty, location}]  qty = stock actual, location = ubicación en almacén
     movements: [],          // [{id, code, desc, qty, type:'entrada'|'salida', origin, ts}]
     lists: {
       montaje: {servido:[], devuelto:[]}
@@ -472,28 +562,70 @@
   }
 
   // ---------- Storage ----------
+  // Orden de prioridad: 1) Firestore (si has pegado tu configuración de Firebase arriba —
+  // guardado compartido entre dispositivos), 2) window.storage (solo dentro de Claude.ai),
+  // 3) localStorage del navegador (guardado local, por defecto si no configuras nada).
+  const hasCloudStorage = (typeof window.storage !== 'undefined') && (typeof window.storage.get === 'function');
+  const LS_PREFIX = 'tecnomat_materiales_';
+  (function(){
+    const note = document.getElementById('autosaveNote');
+    if(!note) return;
+    if(hasFirebase){
+      note.innerHTML = '<span class="autosave-dot"></span> Guardado en la nube (Firebase) — compartido entre todos los dispositivos.';
+    }else if(hasCloudStorage){
+      note.innerHTML = '<span class="autosave-dot"></span> Todo se guarda automáticamente — stock, montaje y proyectos.';
+    }else{
+      note.innerHTML = '<span class="autosave-dot"></span> Guardado automáticamente en este navegador (localStorage). Usa "Descargar todo" en Almacén para tener una copia fuera del navegador, o configura Firebase para compartirlo entre dispositivos.';
+    }
+  })();
+
   async function safeGet(key){
     try{
-      const r = await window.storage.get(key, false);
-      return r ? JSON.parse(r.value) : null;
+      if(hasFirebase){
+        const doc = await db.collection(FIRESTORE_COLLECTION).doc(key).get();
+        return doc.exists ? doc.data().value : null;
+      }
+      if(hasCloudStorage){
+        const r = await window.storage.get(key, false);
+        return r ? JSON.parse(r.value) : null;
+      }
+      const raw = localStorage.getItem(LS_PREFIX+key);
+      return raw ? JSON.parse(raw) : null;
     }catch(e){ return null; }
   }
   async function safeSet(key, value){
     try{
-      const r = await window.storage.set(key, JSON.stringify(value), false);
-      if(!r) showStatus('No se pudo guardar "'+key+'". Los datos podrían no persistir.');
-      return r;
+      if(hasFirebase){
+        await db.collection(FIRESTORE_COLLECTION).doc(key).set({
+          value, updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        return {key, value};
+      }
+      if(hasCloudStorage){
+        const r = await window.storage.set(key, JSON.stringify(value), false);
+        if(!r) showStatus('No se pudo guardar "'+key+'". Los datos podrían no persistir.');
+        return r;
+      }
+      localStorage.setItem(LS_PREFIX+key, JSON.stringify(value));
+      return {key, value};
     }catch(e){
       showStatus('Error guardando "'+key+'": '+e.message);
       return null;
     }
+  }
+  async function safeDelete(key){
+    try{
+      if(hasFirebase){ await db.collection(FIRESTORE_COLLECTION).doc(key).delete(); return; }
+      if(hasCloudStorage){ await window.storage.delete(key, false); return; }
+      localStorage.removeItem(LS_PREFIX+key);
+    }catch(e){}
   }
 
   async function loadAll(){
     const [catalog, movements, lists, projects, appState] = await Promise.all([
       safeGet('catalog'), safeGet('movements'), safeGet('lists'), safeGet('projects'), safeGet('app_state')
     ]);
-    if(catalog) state.catalog = catalog.map(m => ({code:m.code, desc:m.desc, qty: typeof m.qty==='number'?m.qty:0}));
+    if(catalog) state.catalog = catalog.map(m => ({code:m.code, desc:m.desc, qty: typeof m.qty==='number'?m.qty:0, location:m.location||''}));
     if(movements) state.movements = movements;
     if(lists) state.lists.montaje = lists.montaje || {servido:[], devuelto:[]};
     if(projects) state.projects = projects.map(p => typeof p === 'string' ? {name:p, status:'activo'} : {name:p.name, status:p.status||'activo'});
@@ -540,13 +672,23 @@
   function adjustStock(code, desc, qty, type, origin){
     let item = findInCatalog(code);
     if(!item){
-      item = {code, desc, qty:0};
+      item = {code, desc, qty:0, location:''};
       state.catalog.push(item);
     }
     item.qty += (type === 'entrada' ? qty : -qty);
     state.movements.unshift({id:uid(), code, desc:item.desc, qty, type, origin, ts:nowStr()});
     saveCatalog();
     saveMovements();
+  }
+
+  function changeLocation(code){
+    const item = findInCatalog(code);
+    if(!item) return;
+    const val = prompt('Ubicación para '+item.code+' — '+item.desc, item.location || '');
+    if(val === null) return;
+    item.location = val.trim();
+    saveCatalog();
+    render();
   }
 
   // ---------- Add / Return ----------
@@ -607,12 +749,14 @@
     const descInput = $('#unknownDesc');
     const desc = (descInput.value || '').trim();
     if(!desc){ showStatus('Escribe una descripción para el material.'); return; }
+    const locInput = $('#unknownLoc');
+    const location = locInput ? (locInput.value || '').trim() : '';
     const {code, qty, ctx} = pendingUnknownCode;
     if(ctx === 'almacen'){
-      state.catalog.push({code, desc, qty:0});
+      state.catalog.push({code, desc, qty:0, location});
       adjustStock(code, desc, qty, 'entrada', 'Almacén (escaneo)');
     }else{
-      state.catalog.push({code, desc, qty:0});
+      state.catalog.push({code, desc, qty:0, location});
       const target = currentTarget();
       addEntryToTarget(target, code, desc, qty);
       persistCurrentTarget();
@@ -649,14 +793,19 @@
     render();
   }
 
-  function addManualStock(code, desc, qty){
+  function addManualStock(code, desc, qty, location){
     code = code.trim();
     desc = desc.trim();
+    location = (location || '').trim();
     qty = Math.max(1, parseInt(qty,10) || 0);
     if(!code || !desc || !qty){ showStatus('Rellena código, descripción y una cantidad válida.'); return; }
-    const existing = findInCatalog(code);
-    if(existing && !existing.desc) existing.desc = desc;
+    const isNew = !findInCatalog(code);
     adjustStock(code, desc, qty, 'entrada', 'Almacén (manual)');
+    if(isNew){
+      const item = findInCatalog(code);
+      item.location = location;
+      saveCatalog();
+    }
     render();
   }
 
@@ -703,7 +852,7 @@
     state.projects = state.projects.filter(p => p.name !== name);
     delete state.projectData[name];
     saveProjects();
-    try{ await window.storage.delete('project_'+slug(name), false); }catch(e){}
+    await safeDelete('project_'+slug(name));
     if(state.currentProject === name){
       state.currentProject = null;
       saveAppState();
@@ -753,13 +902,59 @@
     XLSX.writeFile(wb, `historico_proyectos_${Date.now()}.xlsx`);
   }
 
+  // ---------- Full backup (JSON file) ----------
+  async function exportBackup(){
+    await loadAllProjectData();
+    const backup = {
+      version: 1,
+      exportedAt: nowStr(),
+      catalog: state.catalog,
+      movements: state.movements,
+      lists: state.lists,
+      projects: state.projects,
+      projectData: state.projectData
+    };
+    const blob = new Blob([JSON.stringify(backup, null, 2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `copia_seguridad_materiales_${Date.now()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    showStatus('Copia de seguridad descargada.');
+  }
+
+  function importBackupFile(file){
+    const reader = new FileReader();
+    reader.onload = function(ev){
+      try{
+        const data = JSON.parse(ev.target.result);
+        if(!confirm('Esto reemplazará el stock, montaje y proyectos actuales por los de la copia de seguridad. ¿Continuar?')) return;
+        state.catalog = (data.catalog||[]).map(m => ({code:m.code, desc:m.desc, qty:typeof m.qty==='number'?m.qty:0, location:m.location||''}));
+        state.movements = data.movements || [];
+        state.lists.montaje = (data.lists && data.lists.montaje) || {servido:[], devuelto:[]};
+        state.projects = (data.projects||[]).map(p => typeof p === 'string' ? {name:p, status:'activo'} : {name:p.name, status:p.status||'activo'});
+        state.projectData = data.projectData || {};
+        saveCatalog(); saveMovements(); saveLists(); saveProjects();
+        Object.keys(state.projectData).forEach(name => saveProjectData(name));
+        showStatus('Copia de seguridad restaurada correctamente.');
+        render();
+      }catch(err){
+        showStatus('No se pudo leer la copia de seguridad: '+err.message);
+      }
+    };
+    reader.readAsText(file);
+  }
+
   // ---------- Stock export ----------
   function exportStock(){
     const wb = XLSX.utils.book_new();
     const stockRows = state.catalog
       .slice()
       .sort((a,b)=>a.code.localeCompare(b.code))
-      .map(m => ({Código:m.code, Descripción:m.desc, 'Stock actual':m.qty}));
+      .map(m => ({Código:m.code, Descripción:m.desc, Ubicación:m.location||'', 'Stock actual':m.qty}));
     const movRows = state.movements.map(m => ({
       Código:m.code, Descripción:m.desc, Cantidad:m.qty,
       Tipo: m.type==='entrada'?'Entrada':'Salida', Origen:m.origin, Fecha:m.ts
@@ -796,15 +991,18 @@
           const codeKey = keys.find(k => /^(c[oó]digo|code|codigo|sku)$/i.test(k.trim())) || keys[0];
           const descKey = keys.find(k => /^(descripci[oó]n|desc|material|nombre)$/i.test(k.trim())) || keys[1] || keys[0];
           const qtyKey = keys.find(k => /^(stock|cantidad|existencias)$/i.test(k.trim()));
+          const locKey = keys.find(k => /^(ubicaci[oó]n|location|lugar|posici[oó]n)$/i.test(k.trim()));
           const code = String(row[codeKey]).trim();
           const desc = String(row[descKey]).trim();
           const qtyVal = qtyKey ? parseInt(row[qtyKey],10) : NaN;
+          const locVal = locKey ? String(row[locKey]).trim() : '';
           if(!code) return;
           let item = state.catalog.find(m => m.code.toLowerCase() === code.toLowerCase());
           if(item){
             if(desc) item.desc = desc;
+            if(locVal) item.location = locVal;
           }else{
-            item = {code, desc: desc || '(sin descripción)', qty:0};
+            item = {code, desc: desc || '(sin descripción)', qty:0, location: locVal};
             state.catalog.push(item);
             added++;
           }
@@ -944,6 +1142,7 @@
           <div class="unknown-box">
             <span>Código <strong>${pendingUnknownCode.code}</strong> no está en el stock.</span>
             <input id="unknownDesc" type="text" placeholder="Descripción del material…">
+            <input id="unknownLoc" type="text" placeholder="Ubicación (opcional)…">
             <button class="cam-btn" id="confirmUnknownBtn">Añadir y registrar</button>
           </div>
         ` : ''}
@@ -962,6 +1161,7 @@
     if(confirmBtn){
       confirmBtn.addEventListener('click', confirmUnknown);
       $('#unknownDesc').addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); confirmUnknown(); }});
+      $('#unknownLoc').addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); confirmUnknown(); }});
       $('#unknownDesc').focus();
     }
   }
@@ -985,7 +1185,11 @@
           <div class="row-code">${m.code}</div>
           <div class="row-desc">${m.desc}</div>
         </div>
-        <span class="stock-qty ${m.qty>0?'ok':'low'}">${m.qty}</span>
+        <div class="row-actions">
+          <span class="stock-loc ${m.location?'set':'unset'}">📍 ${m.location || 'Sin ubicar'}</span>
+          <span class="stock-qty ${m.qty>0?'ok':'low'}">${m.qty}</span>
+          <button class="cam-btn" style="padding:6px 10px; font-size:11px;" data-loc-btn="${m.code}">Cambiar ubicación</button>
+        </div>
       </div>
     `).join('');
 
@@ -1005,15 +1209,19 @@
         <div class="manual-stock-form">
           <input type="text" name="mCode" id="mCode" placeholder="Código">
           <input type="text" name="mDesc" id="mDesc" placeholder="Descripción / nombre del producto">
+          <input type="text" name="mLoc" id="mLoc" placeholder="Ubicación (ej. Pasillo 3 - B2)">
           <input type="number" name="mQty" id="mQty" placeholder="Cant." min="1" value="1">
           <button class="cam-btn" id="addManualBtn">+ Registrar entrada</button>
         </div>
       </div>
     `;
 
+    el.querySelectorAll('[data-loc-btn]').forEach(btn=>{
+      btn.addEventListener('click', ()=> changeLocation(btn.dataset.locBtn));
+    });
     $('#addManualBtn').addEventListener('click', ()=>{
-      addManualStock($('#mCode').value, $('#mDesc').value, $('#mQty').value);
-      $('#mCode').value=''; $('#mDesc').value=''; $('#mQty').value='1';
+      addManualStock($('#mCode').value, $('#mDesc').value, $('#mQty').value, $('#mLoc').value);
+      $('#mCode').value=''; $('#mDesc').value=''; $('#mLoc').value=''; $('#mQty').value='1';
       $('#mCode').focus();
     });
   }
@@ -1132,6 +1340,17 @@
           <input type="text" id="catalogSearch" placeholder="Buscar en el stock…" value="${catalogSearchTerm}" style="width:100%; background:var(--bg-raised); border:1px solid var(--border); color:var(--text-primary); padding:9px 10px; border-radius:7px; font-size:13px; margin-top:4px;">
         </div>
 
+        <div class="panel">
+          <p class="panel-title">Copia de seguridad</p>
+          <div class="backup-row">
+            <button class="btn" id="exportBackupBtn">⬇ Descargar todo</button>
+            <label class="btn" style="text-align:center; display:block;">
+              ⬆ Restaurar
+              <input type="file" id="backupFile" accept=".json" style="display:none;">
+            </label>
+          </div>
+        </div>
+
         ${state.projects.length ? `
         <div class="panel">
           <p class="panel-title">Histórico general</p>
@@ -1149,6 +1368,11 @@
       const fileInput = $('#catalogFile');
       if(fileInput) fileInput.addEventListener('change', e=>{
         if(e.target.files[0]) importCatalogFile(e.target.files[0]);
+      });
+      $('#exportBackupBtn').addEventListener('click', exportBackup);
+      const backupInput = $('#backupFile');
+      if(backupInput) backupInput.addEventListener('change', e=>{
+        if(e.target.files[0]) importBackupFile(e.target.files[0]);
       });
       const searchInput = $('#catalogSearch');
       if(searchInput) searchInput.addEventListener('input', e=>{
@@ -1229,7 +1453,7 @@
     box.innerHTML = matches.slice(0,25).map(m => `
       <div style="display:flex; justify-content:space-between; gap:8px; padding:6px 0; border-bottom:1px dashed var(--border); font-size:12.5px;">
         <span class="row-code" style="font-size:12px;">${m.code}</span>
-        <span style="color:var(--text-muted); text-align:right;">${m.desc} · <strong style="color:${m.qty>0?'var(--success)':'var(--danger)'};">${m.qty}</strong></span>
+        <span style="color:var(--text-muted); text-align:right;">${m.desc} · 📍${m.location||'sin ubicar'} · <strong style="color:${m.qty>0?'var(--success)':'var(--danger)'};">${m.qty}</strong></span>
       </div>
     `).join('') + (matches.length>25 ? `<div style="color:var(--text-faint); font-size:11.5px; padding-top:4px;">+${matches.length-25} más…</div>` : '');
   }
