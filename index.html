@@ -181,15 +181,22 @@
   }
   #scanInput::placeholder{color:#4A3900;}
   #scanInput:focus{border-color:var(--lcd-green);box-shadow:0 0 0 3px rgba(245,197,24,0.14);}
-  .qty-box{
-    width:74px;
-    background:var(--bg-raised);
-    border:1px solid var(--border);
-    color:var(--text-primary);
-    font-size:18px;
-    text-align:center;
-    border-radius:8px;
-    padding:14px 4px;
+  .scanner-actions{
+    display:flex;
+    gap:8px;
+    margin-top:8px;
+  }
+  .scanner-actions .cam-btn{
+    flex:1;
+    padding:14px 10px;
+    font-size:14px;
+  }
+  .scanner-actions #scanSubmitBtn{
+    flex:1.6;
+    padding:14px 10px;
+    font-size:16px;
+    font-weight:800;
+    margin:0;
   }
   .cam-btn{
     background:var(--bg-raised);
@@ -224,6 +231,14 @@
     padding:8px 10px;
     border-radius:6px;
   }
+
+  .code-choice-list{display:flex; flex-direction:column; gap:6px; width:100%; margin-top:4px;}
+  .code-choice-btn{
+    width:100%;
+    text-align:left;
+    white-space:normal;
+  }
+  .code-choice-meta{color:var(--text-faint); font-size:11.5px;}
 
   /* Layout columns */
   .cols{display:flex; gap:14px; align-items:flex-start;}
@@ -536,9 +551,6 @@
     .project-bar .pill-current{align-self:flex-start;}
     .scanner-row{flex-direction:column;}
     #scanInput{font-size:17px; min-width:0; width:100%;}
-    .qty-box{width:100%;}
-    .cam-btn{width:100%; padding:10px;}
-    #scanSubmitBtn{width:100%; padding:10px 0;}
     .unknown-box{flex-direction:column; align-items:stretch;}
     .unknown-box input{width:100%;}
 
@@ -559,6 +571,17 @@
     .manual-stock-form{flex-direction:column;}
     .manual-stock-form input{width:100%;}
     .backup-row{flex-direction:column;}
+
+    /* los botones de acción principal (Crear, Registrar entrada, Registrar bobina...)
+       se quedaban chiquititos en móvil porque antes solo estiraba los inputs, no ellos */
+    .project-bar .cam-btn, .project-bar .btn-return,
+    .manual-stock-form .cam-btn,
+    .unknown-box .cam-btn{
+      width:100%;
+      padding:13px 10px;
+      font-size:14px;
+      font-weight:700;
+    }
   }
 </style>
 </head>
@@ -613,6 +636,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 (function(){
 
@@ -668,6 +692,13 @@
     }).catch(function(err){
       showStatus('No se pudo enviar el correo de aviso: ' + (err && err.text ? err.text : err));
     });
+  }
+
+  // esto es para poder leer PDFs al crear una orden desde archivo — lo dejo cargado
+  // solo si pdf.js se ha podido descargar bien, si no simplemente no ofrezco esa opción
+  const hasPdfLib = typeof pdfjsLib !== 'undefined';
+  if(hasPdfLib){
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
   }
 
   // ---------- Login (Firebase Authentication) ----------
@@ -744,6 +775,7 @@
     alerts: { lastDailyCheck: null } // fecha (YYYY-MM-DD) del último aviso diario ya mandado, para no repetirlo
   };
   let pendingUnknownCode = null;
+  let pendingCodeChoice = null; // {code, matches:[itemIds]} — cuando un código tiene varias referencias y toca elegir
   let catalogSearchTerm = '';
   let globalSearchTerm = ''; // el buscador de arriba de todo, funciona en cualquier sección
   let listView = 'servido'; // 'servido' | 'devuelto' — which sub-list is shown in Montaje/Proyecto
@@ -831,7 +863,7 @@
       safeGet('lists'), safeGet('projects'), safeGet('app_state'),
       safeGet('bobinas'), safeGet('settings'), safeGet('alerts_state'), safeGet('pedido_items')
     ]);
-    if(catalog) state.catalog = catalog.map(m => ({code:m.code, desc:m.desc, qty: typeof m.qty==='number'?m.qty:0, location:m.location||''}));
+    if(catalog) state.catalog = catalog.map(m => ({id:m.id||uid(), code:m.code, desc:m.desc, qty: typeof m.qty==='number'?m.qty:0, location:m.location||''}));
     if(movements) state.movements = movements;
     if(bobinas) state.bobinas = bobinas;
     if(pedidoItems) state.pedidoItems = pedidoItems;
@@ -916,25 +948,35 @@
   }
 
   // ---------- Catalog / stock lookup ----------
+  // esta la dejo con el comportamiento de "primera coincidencia", para los sitios donde
+  // no me preocupa que un código tenga varias referencias (autocompletar, alta manual...)
   function findInCatalog(code){
     return state.catalog.find(m => m.code.toLowerCase() === code.toLowerCase());
   }
+  // esta es la que uso en el escaneo, porque ahí sí puede haber más de una referencia
+  // compartiendo el mismo código de barras y necesito verlas todas para preguntar cuál es
+  function findAllByCode(code){
+    return state.catalog.filter(m => m.code.toLowerCase() === code.toLowerCase());
+  }
+  function createCatalogItem(code, desc, location){
+    const item = {id:uid(), code, desc, qty:0, location: location||''};
+    state.catalog.push(item);
+    saveCatalog();
+    return item;
+  }
 
   // ---------- Stock ledger ----------
-  function adjustStock(code, desc, qty, type, origin){
-    let item = findInCatalog(code);
-    if(!item){
-      item = {code, desc, qty:0, location:''};
-      state.catalog.push(item);
-    }
+  // ahora recibo el item directo (ya resuelto por quien me llama), porque con varias
+  // referencias por código ya no me vale con buscar "el" item de ese código
+  function adjustStock(item, qty, type, origin){
     item.qty += (type === 'entrada' ? qty : -qty);
-    state.movements.unshift({id:uid(), code, desc:item.desc, qty, type, origin, ts:nowStr()});
+    state.movements.unshift({id:uid(), code:item.code, desc:item.desc, qty, type, origin, ts:nowStr()});
     saveCatalog();
     saveMovements();
   }
 
-  function changeLocation(code){
-    const item = findInCatalog(code);
+  function changeLocation(id){
+    const item = state.catalog.find(m => m.id === id);
     if(!item) return;
     const val = prompt('Ubicación para '+item.code+' — '+item.desc, item.location || '');
     if(val === null) return;
@@ -943,8 +985,8 @@
     render();
   }
 
-  function deleteStockItem(code){
-    const item = findInCatalog(code);
+  function deleteStockItem(id){
+    const item = state.catalog.find(m => m.id === id);
     if(!item) return;
     const msg = item.qty > 0
       ? '¿Eliminar "'+item.code+' — '+item.desc+'" del stock? Todavía tiene '+item.qty+' unidades registradas. Esta acción no se puede deshacer.'
@@ -953,7 +995,7 @@
     // antes de borrarla del todo dejo constancia en el historial de que existió y con cuántas unidades se quedó
     state.movements.unshift({id:uid(), code:item.code, desc:item.desc, qty:item.qty, type:'eliminado', origin:'Almacén (referencia eliminada)', ts:nowStr()});
     saveMovements();
-    state.catalog = state.catalog.filter(m => m.code.toLowerCase() !== code.toLowerCase());
+    state.catalog = state.catalog.filter(m => m.id !== id);
     saveCatalog();
     render();
   }
@@ -963,13 +1005,13 @@
     codigo = codigo.trim();
     desc = desc.trim();
     matricula = matricula.trim();
-    if(!codigo || !desc || !matricula || !expira){ showStatus('Rellena código, descripción, matrícula y fecha de devolución.'); return; }
+    if(!codigo || !desc || !matricula || !expira){ showStatus('Rellena código, referencia, matrícula y fecha de devolución.'); return; }
     state.bobinas.push({id:uid(), codigo, desc, matricula, expira, createdAt:nowStr()});
     saveBobinas();
     // si el código no estaba dado de alta en el stock, aprovecho y lo creo con 0 unidades
     // (la bobina en sí no suma al stock contable, solo comparte el mismo código/descripción)
     if(!findInCatalog(codigo)){
-      state.catalog.push({code:codigo, desc, qty:0, location:''});
+      state.catalog.push({id:uid(), code:codigo, desc, qty:0, location:''});
       saveCatalog();
     }
     render();
@@ -983,10 +1025,14 @@
   }
 
   // ---------- Pedido de materiales (listado que mando por correo, no toca el stock) ----------
-  function addToPedido(code, desc, qty){
-    const existente = state.pedidoItems.find(it => it.code.toLowerCase() === code.toLowerCase());
-    if(existente) existente.qty += qty;
-    else state.pedidoItems.push({id:uid(), code, desc, qty});
+  function addToPedido(item, qty){
+    const existente = state.pedidoItems.find(it => it.itemId ? it.itemId===item.id : it.code.toLowerCase()===item.code.toLowerCase());
+    if(existente){
+      existente.qty += qty;
+      if(!existente.itemId) existente.itemId = item.id;
+    }else{
+      state.pedidoItems.push({id:uid(), itemId:item.id, code:item.code, desc:item.desc, qty});
+    }
     savePedido();
     render();
   }
@@ -1080,78 +1126,109 @@
   }
 
   // ---------- Add / Return ----------
-  function addEntryToTarget(target, code, desc, qty){
-    const existing = target.servido.find(e => e.code.toLowerCase() === code.toLowerCase());
+  function addEntryToTarget(target, item, qty){
+    // si la entrada es de una versión vieja sin itemId, la reconozco por código como antes
+    const existing = target.servido.find(e => e.itemId ? e.itemId===item.id : e.code.toLowerCase()===item.code.toLowerCase());
     if(existing){
       existing.qty += qty;
       existing.ts = nowStr(); // última actualización (no pisa la fecha de primera entrega)
+      if(!existing.itemId) existing.itemId = item.id;
     }else{
       const now = nowStr();
-      target.servido.unshift({id:uid(), code, desc, qty, firstTs:now, ts:now});
+      target.servido.unshift({id:uid(), itemId:item.id, code:item.code, desc:item.desc, qty, firstTs:now, ts:now});
     }
+  }
+
+  // esto lo separo para no repetir el prompt varias veces — pregunto la cantidad justo
+  // cuando ya sé qué referencia es (si cancela, devuelvo null y no hago nada)
+  function askQty(label){
+    const val = prompt('¿Cuántas unidades de "'+label+'"?', '1');
+    if(val === null) return null;
+    return Math.max(1, parseInt(val,10) || 1);
+  }
+
+  // esta es la que hace la acción de verdad una vez que ya sé qué referencia concreta es
+  // (la uso tanto si solo había una coincidencia como si venimos de elegirla en el selector)
+  function proceedWithItem(item){
+    const label = item.code+' — '+item.desc;
+    if(state.mode === 'almacen'){
+      const qty = askQty(label);
+      if(qty === null) return;
+      adjustStock(item, qty, 'entrada', 'Almacén (escaneo)');
+      showStatus('Entrada registrada: +'+qty+' · '+label);
+      render();
+      return;
+    }
+    if(state.mode === 'pedido'){
+      const qty = askQty(label);
+      if(qty === null) return;
+      addToPedido(item, qty);
+      showStatus('Añadido al pedido: '+qty+' · '+label);
+      return;
+    }
+    // montaje / proyecto
+    if(item.qty <= 0){
+      showStatus('No se puede servir "'+label+'" — no queda stock (0 unidades). Dalo de alta en Almacén primero.');
+      return;
+    }
+    const target = currentTarget();
+    if(!target) return;
+    const qty = askQty(label);
+    if(qty === null) return;
+    if(qty > item.qty){
+      showStatus('Solo quedan '+item.qty+' unidad(es) de "'+label+'" en stock — no se puede servir más de eso.');
+      return;
+    }
+    addEntryToTarget(target, item, qty);
+    persistCurrentTarget();
+    adjustStock(item, qty, 'salida', originLabel());
+    render();
   }
 
   function handleScan(rawCode){
     const code = rawCode.trim();
     if(!code) return;
-    const qty = Math.max(1, parseInt($('#qtyInput').value,10) || 1);
+    pendingCodeChoice = null;
 
-    if(state.mode === 'almacen'){
-      const match = findInCatalog(code);
-      if(match){
-        adjustStock(match.code, match.desc, qty, 'entrada', 'Almacén (escaneo)');
-        pendingUnknownCode = null;
-        showStatus('Entrada registrada: +'+qty+' · '+match.code);
-        render();
-      }else{
-        pendingUnknownCode = {code, qty, ctx:'almacen'};
-        renderScannerZone();
+    // en Montaje/Proyecto compruebo primero que haya dónde registrar, antes de nada más
+    if(state.mode === 'montaje' || state.mode === 'proyecto'){
+      const target = currentTarget();
+      if(!target){ showStatus('Selecciona '+(state.mode==='montaje'?'una orden de montaje':'un proyecto')+' antes de escanear.'); return; }
+      const g = findGroup(state.mode, state.current[state.mode]);
+      if(g && g.status==='finalizado'){
+        showStatus('Est'+(state.mode==='montaje'?'a orden está finalizada':'e proyecto está finalizado')+'. Reactíval'+(state.mode==='montaje'?'a':'o')+' para seguir registrando material.');
+        return;
       }
-      $('#scanInput').value = '';
-      $('#scanInput').focus();
-      return;
     }
 
-    if(state.mode === 'pedido'){
-      // aquí solo miro contra el stock para sacar la descripción, no lo descuento de nada
-      const match = findInCatalog(code);
-      if(!match){
+    const matches = findAllByCode(code);
+
+    if(matches.length === 0){
+      if(state.mode === 'almacen'){
+        pendingUnknownCode = {code};
+        renderScannerZone();
+      }else if(state.mode === 'pedido'){
         showStatus('El código "'+code+'" no está en el stock, así que no lo puedo añadir al pedido.');
       }else{
-        addToPedido(match.code, match.desc, qty);
-        showStatus('Añadido al pedido: '+qty+' · '+match.code);
+        showStatus('No se puede servir "'+code+'" — no queda stock (0 unidades). Dalo de alta en Almacén primero.');
       }
       $('#scanInput').value = '';
       $('#scanInput').focus();
       return;
     }
 
-    const target = currentTarget();
-    if(!target){ showStatus('Selecciona '+(state.mode==='montaje'?'una orden de montaje':'un proyecto')+' antes de escanear.'); return; }
-    const g = findGroup(state.mode, state.current[state.mode]);
-    if(g && g.status==='finalizado'){
-      showStatus('Est'+(state.mode==='montaje'?'a orden está finalizada':'e proyecto está finalizado')+'. Reactíval'+(state.mode==='montaje'?'a':'o')+' para seguir registrando material.');
-      return;
-    }
-    const match = findInCatalog(code);
-    // no dejo servir nada que no tenga stock, ni tampoco más cantidad de la que realmente hay
-    if(!match || match.qty <= 0){
-      showStatus('No se puede servir "'+code+'" — no queda stock (0 unidades). Dalo de alta en Almacén primero.');
+    if(matches.length === 1){
+      pendingUnknownCode = null;
+      proceedWithItem(matches[0]);
       $('#scanInput').value = '';
       $('#scanInput').focus();
       return;
     }
-    if(qty > match.qty){
-      showStatus('Solo quedan '+match.qty+' unidad(es) de "'+match.code+'" en stock — no se puede servir más de eso.');
-      $('#scanInput').value = '';
-      $('#scanInput').focus();
-      return;
-    }
-    addEntryToTarget(target, match.code, match.desc, qty);
-    persistCurrentTarget();
-    adjustStock(match.code, match.desc, qty, 'salida', originLabel());
+
+    // dos o más referencias comparten este código de barras — antes de tocar nada pregunto cuál es
     pendingUnknownCode = null;
-    render();
+    pendingCodeChoice = {code, matches: matches.map(m => m.id)};
+    renderScannerZone();
     $('#scanInput').value = '';
     $('#scanInput').focus();
   }
@@ -1160,16 +1237,12 @@
     if(!pendingUnknownCode) return;
     const descInput = $('#unknownDesc');
     const desc = (descInput.value || '').trim();
-    if(!desc){ showStatus('Escribe una descripción para el material.'); return; }
+    if(!desc){ showStatus('Escribe una referencia para el material.'); return; }
     const locInput = $('#unknownLoc');
     const location = locInput ? (locInput.value || '').trim() : '';
-    const {code, qty} = pendingUnknownCode;
-    // esto solo puede llegar aquí desde Almacén (entrada), ya que en Montaje/Proyecto
-    // ahora bloqueo directamente si el código no tiene stock, así que no hace falta el ctx
-    state.catalog.push({code, desc, qty:0, location});
-    adjustStock(code, desc, qty, 'entrada', 'Almacén (escaneo)');
+    const item = createCatalogItem(pendingUnknownCode.code, desc, location);
     pendingUnknownCode = null;
-    render();
+    proceedWithItem(item); // esto ya pregunta la cantidad y hace la entrada correspondiente
     $('#scanInput').focus();
   }
 
@@ -1185,7 +1258,9 @@
       target.servido = target.servido.filter(e => e.id !== id);
     }
     persistCurrentTarget();
-    adjustStock(entry.code, entry.desc, q, 'entrada', originLabel()+' (devolución)');
+    // si la entrada tiene itemId uso ese (es la referencia exacta); si no, caigo al código como antes
+    const item = (entry.itemId && state.catalog.find(m => m.id === entry.itemId)) || findInCatalog(entry.code);
+    if(item) adjustStock(item, q, 'entrada', originLabel()+' (devolución)');
     render();
   }
 
@@ -1204,14 +1279,12 @@
     desc = desc.trim();
     location = (location || '').trim();
     qty = Math.max(1, parseInt(qty,10) || 0);
-    if(!code || !desc || !qty){ showStatus('Rellena código, descripción y una cantidad válida.'); return; }
-    const isNew = !findInCatalog(code);
-    adjustStock(code, desc, qty, 'entrada', 'Almacén (manual)');
-    if(isNew){
-      const item = findInCatalog(code);
-      item.location = location;
-      saveCatalog();
-    }
+    if(!code || !desc || !qty){ showStatus('Rellena código, referencia y una cantidad válida.'); return; }
+    // aquí me quedo con la primera coincidencia — si quiero una referencia distinta bajo
+    // el mismo código, para eso está el botón "+ Otra referencia" en la fila del stock
+    let item = findInCatalog(code);
+    if(!item) item = createCatalogItem(code, desc, location);
+    adjustStock(item, qty, 'entrada', 'Almacén (manual)');
     render();
   }
 
@@ -1290,8 +1363,8 @@
       const name = g.name;
       const pd = state.groupData[kind+'::'+name] || {servido:[], devuelto:[]};
       const rows = [
-        ...pd.servido.map(e => ({Código:e.code, Descripción:e.desc, Cantidad:e.qty, Entregado:e.firstTs||e.ts, Actualizado:e.ts, Estado:'Servido'})),
-        ...pd.devuelto.map(e => ({Código:e.code, Descripción:e.desc, Cantidad:e.qty, Entregado:e.deliveredAt||'', Devuelto:e.ts, Estado:'Devuelto'}))
+        ...pd.servido.map(e => ({Código:e.code, Referencia:e.desc, Cantidad:e.qty, Entregado:e.firstTs||e.ts, Actualizado:e.ts, Estado:'Servido'})),
+        ...pd.devuelto.map(e => ({Código:e.code, Referencia:e.desc, Cantidad:e.qty, Entregado:e.deliveredAt||'', Devuelto:e.ts, Estado:'Devuelto'}))
       ];
       summary.push({
         [GROUP_LABELS_CAP[kind]]:name,
@@ -1302,7 +1375,7 @@
       let base = sheetName, i = 2;
       while(usedNames.has(sheetName)){ sheetName = (base.slice(0,28)+'_'+i).slice(0,31); i++; }
       usedNames.add(sheetName);
-      const ws = XLSX.utils.json_to_sheet(rows.length?rows:[{Código:'',Descripción:'',Cantidad:'',Entregado:'',Estado:''}]);
+      const ws = XLSX.utils.json_to_sheet(rows.length?rows:[{Código:'',Referencia:'',Cantidad:'',Entregado:'',Estado:''}]);
       XLSX.utils.book_append_sheet(wb, ws, sheetName);
     });
     const wsSummary = XLSX.utils.json_to_sheet(summary);
@@ -1345,7 +1418,7 @@
       try{
         const data = JSON.parse(ev.target.result);
         if(!confirm('Esto reemplazará el stock, las órdenes de montaje y los proyectos actuales por los de la copia de seguridad. ¿Continuar?')) return;
-        state.catalog = (data.catalog||[]).map(m => ({code:m.code, desc:m.desc, qty:typeof m.qty==='number'?m.qty:0, location:m.location||''}));
+        state.catalog = (data.catalog||[]).map(m => ({id:m.id||uid(), code:m.code, desc:m.desc, qty:typeof m.qty==='number'?m.qty:0, location:m.location||''}));
         state.movements = data.movements || [];
         if(data.groups){
           state.groups = data.groups;
@@ -1383,18 +1456,18 @@
     const stockRows = state.catalog
       .slice()
       .sort((a,b)=>a.code.localeCompare(b.code))
-      .map(m => ({Código:m.code, Descripción:m.desc, Ubicación:m.location||'', 'Stock actual':m.qty}));
+      .map(m => ({Código:m.code, Referencia:m.desc, Ubicación:m.location||'', 'Stock actual':m.qty}));
     const movRows = state.movements.map(m => ({
-      Código:m.code, Descripción:m.desc, Cantidad:m.qty,
+      Código:m.code, Referencia:m.desc, Cantidad:m.qty,
       Tipo: movTypeLabel(m.type), Origen:m.origin, Fecha:m.ts
     }));
     const bobinaRows = state.bobinas
       .slice()
       .sort((a,b)=> a.expira.localeCompare(b.expira))
-      .map(b => ({Código:b.codigo||'', Descripción:b.desc, Matrícula:b.matricula, 'Devolver antes de':b.expira}));
-    const wsStock = XLSX.utils.json_to_sheet(stockRows.length?stockRows:[{Código:'',Descripción:'','Stock actual':''}]);
-    const wsMov = XLSX.utils.json_to_sheet(movRows.length?movRows:[{Código:'',Descripción:'',Cantidad:'',Tipo:'',Origen:'',Fecha:''}]);
-    const wsBobinas = XLSX.utils.json_to_sheet(bobinaRows.length?bobinaRows:[{Código:'',Descripción:'',Matrícula:'','Devolver antes de':''}]);
+      .map(b => ({Código:b.codigo||'', Referencia:b.desc, Matrícula:b.matricula, 'Devolver antes de':b.expira}));
+    const wsStock = XLSX.utils.json_to_sheet(stockRows.length?stockRows:[{Código:'',Referencia:'','Stock actual':''}]);
+    const wsMov = XLSX.utils.json_to_sheet(movRows.length?movRows:[{Código:'',Referencia:'',Cantidad:'',Tipo:'',Origen:'',Fecha:''}]);
+    const wsBobinas = XLSX.utils.json_to_sheet(bobinaRows.length?bobinaRows:[{Código:'',Referencia:'',Matrícula:'','Devolver antes de':''}]);
     XLSX.utils.book_append_sheet(wb, wsStock, 'Stock actual');
     XLSX.utils.book_append_sheet(wb, wsMov, 'Movimientos');
     XLSX.utils.book_append_sheet(wb, wsBobinas, 'Bobinas');
@@ -1404,10 +1477,10 @@
   // ---------- Excel export ----------
   function exportList(target, filename){
     const wb = XLSX.utils.book_new();
-    const servidoRows = target.servido.map(e => ({Código:e.code, Descripción:e.desc, Cantidad:e.qty, Entregado:e.firstTs||e.ts, Actualizado:e.ts}));
-    const devueltoRows = target.devuelto.map(e => ({Código:e.code, Descripción:e.desc, Cantidad:e.qty, Entregado:e.deliveredAt||'', Devuelto:e.ts}));
-    const wsS = XLSX.utils.json_to_sheet(servidoRows.length?servidoRows:[{Código:'',Descripción:'',Cantidad:'',Entregado:'',Actualizado:''}]);
-    const wsD = XLSX.utils.json_to_sheet(devueltoRows.length?devueltoRows:[{Código:'',Descripción:'',Cantidad:'',Entregado:'',Devuelto:''}]);
+    const servidoRows = target.servido.map(e => ({Código:e.code, Referencia:e.desc, Cantidad:e.qty, Entregado:e.firstTs||e.ts, Actualizado:e.ts}));
+    const devueltoRows = target.devuelto.map(e => ({Código:e.code, Referencia:e.desc, Cantidad:e.qty, Entregado:e.deliveredAt||'', Devuelto:e.ts}));
+    const wsS = XLSX.utils.json_to_sheet(servidoRows.length?servidoRows:[{Código:'',Referencia:'',Cantidad:'',Entregado:'',Actualizado:''}]);
+    const wsD = XLSX.utils.json_to_sheet(devueltoRows.length?devueltoRows:[{Código:'',Referencia:'',Cantidad:'',Entregado:'',Devuelto:''}]);
     XLSX.utils.book_append_sheet(wb, wsS, 'Servido');
     XLSX.utils.book_append_sheet(wb, wsD, 'Devuelto');
     XLSX.writeFile(wb, filename);
@@ -1424,7 +1497,7 @@
         rows.forEach(row => {
           const keys = Object.keys(row);
           const codeKey = keys.find(k => /^(c[oó]digo|code|codigo|sku)$/i.test(k.trim())) || keys[0];
-          const descKey = keys.find(k => /^(descripci[oó]n|desc|material|nombre)$/i.test(k.trim())) || keys[1] || keys[0];
+          const descKey = keys.find(k => /^(descripci[oó]n|desc|referencia|ref|material|nombre)$/i.test(k.trim())) || keys[1] || keys[0];
           const qtyKey = keys.find(k => /^(stock|cantidad|existencias)$/i.test(k.trim()));
           const locKey = keys.find(k => /^(ubicaci[oó]n|location|lugar|posici[oó]n)$/i.test(k.trim()));
           const code = String(row[codeKey]).trim();
@@ -1437,12 +1510,12 @@
             if(desc) item.desc = desc;
             if(locVal) item.location = locVal;
           }else{
-            item = {code, desc: desc || '(sin descripción)', qty:0, location: locVal};
+            item = {id:uid(), code, desc: desc || '(sin referencia)', qty:0, location: locVal};
             state.catalog.push(item);
             added++;
           }
           if(!isNaN(qtyVal) && qtyVal > 0){
-            adjustStock(item.code, item.desc, qtyVal, 'entrada', 'Importación catálogo');
+            adjustStock(item, qtyVal, 'entrada', 'Importación catálogo');
             withStock++;
           }
         });
@@ -1456,7 +1529,114 @@
     reader.readAsArrayBuffer(file);
   }
 
-  // ---------- Camera scanning ----------
+  // ---------- Crear orden desde archivo (Excel/CSV fiable, PDF a mejor esfuerzo) ----------
+  // saco filas {code, desc, qty} de un Excel/CSV reutilizando la misma detección de columnas
+  // que uso para importar el catálogo, pero aquí la cantidad es obligatoria (si no la trae, pongo 1)
+  function parseExcelOrderFile(file){
+    return new Promise((resolve, reject)=>{
+      const reader = new FileReader();
+      reader.onload = ev => {
+        try{
+          const wb = XLSX.read(ev.target.result, {type:'array'});
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          const raw = XLSX.utils.sheet_to_json(ws, {defval:''});
+          const rows = raw.map(row => {
+            const keys = Object.keys(row);
+            const codeKey = keys.find(k => /^(c[oó]digo|code|codigo|sku)$/i.test(k.trim()));
+            const descKey = keys.find(k => /^(descripci[oó]n|desc|referencia|ref|material|nombre)$/i.test(k.trim()));
+            const qtyKey = keys.find(k => /^(cantidad|unidades|uds|qty)$/i.test(k.trim()));
+            const code = codeKey ? String(row[codeKey]).trim() : '';
+            const desc = descKey ? String(row[descKey]).trim() : (!codeKey ? String(row[keys[0]]).trim() : '');
+            const qty = qtyKey ? Math.max(1, parseInt(row[qtyKey],10)||1) : 1;
+            return {code, desc, qty};
+          }).filter(r => r.code || r.desc);
+          resolve(rows);
+        }catch(e){ reject(e); }
+      };
+      reader.onerror = () => reject(new Error('No se pudo leer el archivo'));
+      reader.readAsArrayBuffer(file);
+    });
+  }
+
+  // esto es "mejor esfuerzo" de verdad — un PDF no tiene columnas, así que intento sacar
+  // de cada línea de texto algo con pinta de "referencia ... cantidad al final". Funciona
+  // razonablemente bien con listados sencillos, pero con PDFs muy maquetados puede fallar
+  async function parsePdfOrderFile(file){
+    if(!hasPdfLib){
+      showStatus('No se pudo cargar el lector de PDF. Prueba subiendo un Excel/CSV en su lugar.');
+      return [];
+    }
+    const buf = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({data:buf}).promise;
+    let texto = '';
+    for(let i=1; i<=pdf.numPages; i++){
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      texto += content.items.map(it => it.str).join(' ') + '\n';
+    }
+    const rows = [];
+    texto.split('\n').map(l=>l.trim()).filter(Boolean).forEach(line => {
+      const m = line.match(/^(.*?)\s+(\d+)\s*(?:uds?\.?|unidades)?$/i);
+      if(m && m[1].trim().length > 1){
+        rows.push({code:'', desc:m[1].trim(), qty:Math.max(1, parseInt(m[2],10)||1)});
+      }
+    });
+    return rows;
+  }
+
+  // aquí ya tengo las filas leídas (venga de Excel o de PDF) y las convierto en líneas
+  // de la orden/proyecto actual, buscando cada una en el stock por código o por referencia
+  async function processOrderFile(file){
+    const target = currentTarget();
+    if(!target){ showStatus('Selecciona '+(state.mode==='montaje'?'una orden de montaje':'un proyecto')+' antes de subir el archivo.'); return; }
+    const ext = (file.name.split('.').pop() || '').toLowerCase();
+    let rows = [];
+    try{
+      if(['xlsx','xls','csv'].includes(ext)) rows = await parseExcelOrderFile(file);
+      else if(ext === 'pdf') rows = await parsePdfOrderFile(file);
+      else { showStatus('Formato no soportado — usa Excel, CSV o PDF.'); return; }
+    }catch(e){
+      showStatus('No se pudo leer el archivo: '+e.message);
+      return;
+    }
+    if(!rows.length){ showStatus('No he podido sacar ninguna línea de ese archivo.'); return; }
+
+    let servidas = 0, plantillas = 0, incompletas = 0;
+    rows.forEach(r => {
+      let item = r.code ? findInCatalog(r.code) : null;
+      if(!item && r.desc){
+        item = state.catalog.find(m => m.desc.toLowerCase() === r.desc.toLowerCase());
+      }
+      if(item){
+        const qty = Math.min(r.qty, item.qty);
+        if(qty > 0){
+          addEntryToTarget(target, item, qty);
+          adjustStock(item, qty, 'salida', originLabel()+' (archivo de orden)');
+          servidas++;
+          if(qty < r.qty) incompletas++;
+        }else{
+          incompletas++;
+        }
+      }else{
+        // no existe en el stock — lo doy de alta como plantilla (0 unidades reales) y dejo
+        // la cantidad pedida anotada en la orden, a la espera de que se complete con el
+        // código de verdad más adelante (o se meta stock real de esa referencia)
+        const nuevoCodigo = r.code || ('REF-'+slug(r.desc || uid()));
+        const nuevoItem = createCatalogItem(nuevoCodigo, r.desc || '(sin referencia)', '');
+        const now = nowStr();
+        target.servido.unshift({id:uid(), itemId:nuevoItem.id, code:nuevoItem.code, desc:nuevoItem.desc, qty:r.qty, firstTs:now, ts:now});
+        plantillas++;
+      }
+    });
+    persistCurrentTarget();
+    render();
+    showStatus(
+      'Archivo procesado ('+rows.length+' líneas): '+servidas+' servidas del stock'+
+      (plantillas ? ', '+plantillas+' creadas como plantilla nueva (sin stock real todavía)' : '')+
+      (incompletas ? ', '+incompletas+' con menos stock del pedido' : '')+'.'
+    );
+  }
+
   let camStream = null;
   // le paso una función que hacer con el código leído, así uso esto mismo tanto para el
   // escáner principal como para el campo de código de las bobinas
@@ -1582,6 +1762,7 @@
       btn.addEventListener('click', ()=>{
         state.mode = btn.dataset.mode;
         pendingUnknownCode = null;
+        pendingCodeChoice = null;
         listView = 'servido';
         saveAppState();
         render();
@@ -1639,7 +1820,7 @@
       : state.mode==='pedido' ? 'Escanea o introduce el código para añadirlo al pedido…'
       : 'Escanea o introduce el código…';
     const hint = state.mode==='almacen'
-      ? 'Cada código escaneado aquí suma unidades al stock (entrada). Para material desconocido, te pedirá una descripción.'
+      ? 'Cada código escaneado aquí suma unidades al stock (entrada). Para material desconocido, te pedirá una referencia.'
       : state.mode==='pedido'
       ? 'Cada código añade esa cantidad al pedido — esto no descuenta stock, es solo un listado para pedir y mandar por correo.'
       : 'Cada código escaneado aquí resta unidades del stock (salida) y queda registrado en esta lista.';
@@ -1648,17 +1829,31 @@
       <div class="scanner-panel">
         <div class="scanner-row">
           <input id="scanInput" type="text" placeholder="${placeholder}" ${disabled?'disabled':''} autocomplete="off">
-          <input id="qtyInput" class="qty-box" type="number" min="1" value="1" title="Cantidad" ${disabled?'disabled':''}>
-          <button class="cam-btn" id="camBtn" ${disabled?'disabled':''}>📷 Cámara</button>
-          <button class="btn primary" id="scanSubmitBtn" style="width:auto; padding:0 18px; margin:0;" ${disabled?'disabled':''}>${submitLabel}</button>
         </div>
-        <div class="scan-hint">${hint} · Funciona con lector USB/Bluetooth (Enter), cámara del móvil, o escribiendo el código a mano y pulsando "${submitLabel}".</div>
+        <div class="scanner-actions">
+          <button class="cam-btn" id="camBtn" ${disabled?'disabled':''}>📷 Cámara</button>
+          <button class="btn primary" id="scanSubmitBtn" ${disabled?'disabled':''}>${submitLabel}</button>
+        </div>
+        <div class="scan-hint">${hint} · Te pregunto la cantidad justo después de leer el código. Funciona con lector USB/Bluetooth (Enter), cámara del móvil, o escribiendo el código a mano.</div>
         ${pendingUnknownCode ? `
           <div class="unknown-box">
-            <span>Código <strong>${esc(pendingUnknownCode.code)}</strong> no está en el stock.</span>
-            <input id="unknownDesc" type="text" placeholder="Descripción del material…">
+            <span>Nueva referencia para el código <strong>${esc(pendingUnknownCode.code)}</strong>:</span>
+            <input id="unknownDesc" type="text" placeholder="Referencia del material…">
             <input id="unknownLoc" type="text" placeholder="Ubicación (opcional)…">
             <button class="cam-btn" id="confirmUnknownBtn">Añadir y registrar</button>
+          </div>
+        ` : ''}
+        ${pendingCodeChoice ? `
+          <div class="unknown-box" style="flex-direction:column; align-items:stretch;">
+            <span>El código <strong>${esc(pendingCodeChoice.code)}</strong> tiene varias referencias registradas. ¿Cuál es?</span>
+            <div class="code-choice-list">
+              ${pendingCodeChoice.matches.map(id=>{
+                const it = state.catalog.find(x=>x.id===id);
+                if(!it) return '';
+                return `<button class="cam-btn code-choice-btn" data-choice-item="${it.id}">${esc(it.desc)} <span class="code-choice-meta">· ${it.qty} uds · 📍${esc(it.location)||'sin ubicar'}</span></button>`;
+              }).join('')}
+              <button class="cam-btn code-choice-btn" id="choiceCreateNewBtn" style="border-style:dashed;">+ Crear otra referencia nueva con este código</button>
+            </div>
           </div>
         ` : ''}
       </div>
@@ -1680,6 +1875,23 @@
       $('#unknownDesc').addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); confirmUnknown(); }});
       $('#unknownLoc').addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); confirmUnknown(); }});
       $('#unknownDesc').focus();
+    }
+    if(pendingCodeChoice){
+      zone.querySelectorAll('[data-choice-item]').forEach(btn=>{
+        btn.addEventListener('click', ()=>{
+          const item = state.catalog.find(x=>x.id===btn.dataset.choiceItem);
+          pendingCodeChoice = null;
+          if(item) proceedWithItem(item);
+          renderScannerZone(); // por si proceedWithItem no ha hecho un render completo (p.ej. en pedido)
+        });
+      });
+      const createNewBtn = $('#choiceCreateNewBtn');
+      if(createNewBtn) createNewBtn.addEventListener('click', ()=>{
+        const code = pendingCodeChoice.code;
+        pendingCodeChoice = null;
+        pendingUnknownCode = {code};
+        renderScannerZone();
+      });
     }
   }
 
@@ -1705,8 +1917,9 @@
         <div class="row-actions">
           <span class="stock-loc ${m.location?'set':'unset'}">📍 ${esc(m.location) || 'Sin ubicar'}</span>
           <span class="stock-qty ${m.qty>0?'ok':'low'}">${m.qty}</span>
-          <button class="cam-btn" style="padding:6px 10px; font-size:11px;" data-loc-btn="${esc(m.code)}">Cambiar ubicación</button>
-          <button class="btn-return" style="padding:6px 10px; font-size:11px;" data-del-btn="${esc(m.code)}">🗑 Eliminar</button>
+          <button class="cam-btn" style="padding:6px 10px; font-size:11px;" data-loc-btn="${m.id}">Cambiar ubicación</button>
+          <button class="cam-btn" style="padding:6px 10px; font-size:11px;" data-dup-btn="${esc(m.code)}">+ Otra referencia</button>
+          <button class="btn-return" style="padding:6px 10px; font-size:11px;" data-del-btn="${m.id}">🗑 Eliminar</button>
         </div>
       </div>
     `).join('');
@@ -1726,7 +1939,7 @@
         <p class="panel-title">Añadir stock manualmente</p>
         <div class="manual-stock-form">
           <input type="text" name="mCode" id="mCode" placeholder="Código">
-          <input type="text" name="mDesc" id="mDesc" placeholder="Descripción / nombre del producto">
+          <input type="text" name="mDesc" id="mDesc" placeholder="Referencia del producto">
           <input type="text" name="mLoc" id="mLoc" placeholder="Ubicación (ej. Pasillo 3 - B2)">
           <input type="number" name="mQty" id="mQty" placeholder="Cant." min="1" value="1">
           <button class="cam-btn" id="addManualBtn">+ Registrar entrada</button>
@@ -1741,6 +1954,15 @@
     });
     el.querySelectorAll('[data-del-btn]').forEach(btn=>{
       btn.addEventListener('click', ()=> deleteStockItem(btn.dataset.delBtn));
+    });
+    el.querySelectorAll('[data-dup-btn]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        // reutilizo el mismo formulario de "referencia nueva" que uso cuando el código no existía
+        pendingCodeChoice = null;
+        pendingUnknownCode = {code: btn.dataset.dupBtn};
+        showStatus('Rellena la nueva referencia para el código "'+btn.dataset.dupBtn+'" justo arriba, junto al escáner.');
+        render();
+      });
     });
     $('#addManualBtn').addEventListener('click', ()=>{
       addManualStock($('#mCode').value, $('#mDesc').value, $('#mQty').value, $('#mLoc').value);
@@ -1799,12 +2021,12 @@
         <div class="manual-stock-form">
           <input type="text" id="bCodigo" placeholder="Código">
           <button class="cam-btn" id="bCamBtn" style="flex:none; padding:9px 12px;">📷</button>
-          <input type="text" id="bDesc" placeholder="Descripción" style="flex:2; min-width:140px;">
+          <input type="text" id="bDesc" placeholder="Referencia" style="flex:2; min-width:140px;">
           <input type="text" id="bMatricula" placeholder="Matrícula" style="flex:1; min-width:100px;">
           <input type="date" id="bFecha" style="flex:1; min-width:150px;">
           <button class="cam-btn" id="addBobinaBtn">+ Registrar bobina</button>
         </div>
-        <div class="scan-hint" style="margin-top:6px;">El código puede escanearse con lector USB/Bluetooth (escribe y pulsa Enter en el campo) o con la cámara. Si ya existe en el stock, la descripción se rellena sola.</div>
+        <div class="scan-hint" style="margin-top:6px;">El código puede escanearse con lector USB/Bluetooth (escribe y pulsa Enter en el campo) o con la cámara. Si ya existe en el stock, la referencia se rellena sola.</div>
       </div>
 
       <div class="ticket" style="margin-top:14px;">
@@ -2081,8 +2303,20 @@
       </div>
 
       <div class="panel">
+        <p class="panel-title">Crear ${state.mode==='montaje'?'orden':'líneas'} desde archivo</p>
+        <label class="btn" style="text-align:center; display:block; ${target?'':'opacity:.5; pointer-events:none;'}">
+          📄 Subir Excel / CSV / PDF
+          <input type="file" id="orderFile" accept=".xlsx,.xls,.csv,.pdf" style="display:none;" ${target?'':'disabled'}>
+        </label>
+        <p style="font-size:11.5px; color:var(--text-faint); margin-top:6px;">
+          Busca cada línea por código o por referencia en el stock. Si no existe, la da de alta como plantilla nueva (sin stock real) para completarla luego.
+          El PDF es "mejor esfuerzo" — depende de cómo esté maquetado; si falla, prueba con el Excel/CSV original.
+        </p>
+      </div>
+
+      <div class="panel">
         <p class="panel-title">Buscar en el stock</p>
-        <input type="text" id="catalogSearch" placeholder="Buscar por código o descripción…" value="${catalogSearchTerm}" style="width:100%; background:var(--bg-raised); border:1px solid var(--border); color:var(--text-primary); padding:9px 10px; border-radius:7px; font-size:13px;">
+        <input type="text" id="catalogSearch" placeholder="Buscar por código o referencia…" value="${catalogSearchTerm}" style="width:100%; background:var(--bg-raised); border:1px solid var(--border); color:var(--text-primary); padding:9px 10px; border-radius:7px; font-size:13px;">
         <div id="catalogResults" style="margin-top:8px; max-height:220px; overflow-y:auto;"></div>
       </div>
 
@@ -2101,6 +2335,12 @@
     });
     const clearBtn = $('#clearBtn');
     if(clearBtn) clearBtn.addEventListener('click', clearCurrentList);
+
+    const orderFileInput = $('#orderFile');
+    if(orderFileInput) orderFileInput.addEventListener('change', e=>{
+      if(e.target.files[0]) processOrderFile(e.target.files[0]);
+      e.target.value = ''; // así puedo volver a subir el mismo archivo si hace falta
+    });
 
     const searchInput = $('#catalogSearch');
     if(searchInput){
