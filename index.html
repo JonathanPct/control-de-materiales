@@ -833,8 +833,9 @@
 
   // ---------- Storage ----------
   // Orden de prioridad: 1) Firestore (si has pegado tu configuración de Firebase arriba —
-  // guardado compartido entre dispositivos), 2) window.storage (solo dentro de Claude.ai),
-  // 3) localStorage del navegador (guardado local, por defecto si no configuras nada).
+  // guardado compartido entre dispositivos), 2) window.storage (por si el entorno donde
+  // se ejecuta ofrece esa API), 3) localStorage del navegador (guardado local, por defecto
+  // si no configuras nada).
   const hasCloudStorage = (typeof window.storage !== 'undefined') && (typeof window.storage.get === 'function');
   const LS_PREFIX = 'tecnomat_materiales_';
   (function(){
@@ -2667,7 +2668,47 @@
 // no quiero que se lleve por delante el resto de la aplicación
 if('serviceWorker' in navigator){
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
+    navigator.serviceWorker.register('sw.js').then(reg => {
+      // por si ya había una versión nueva esperando desde antes de cargar esta página
+      if(reg.waiting) showSwUpdateBanner(reg);
+
+      // esto salta cuando el navegador detecta un sw.js distinto al que ya tenía
+      reg.addEventListener('updatefound', () => {
+        const nuevo = reg.installing;
+        if(!nuevo) return;
+        nuevo.addEventListener('statechange', () => {
+          // "installed" + ya había un controller = hay una versión nueva lista,
+          // pero todavía no activa (si no hubiera controller, sería la primera
+          // instalación de siempre, no una actualización, y no hace falta avisar)
+          if(nuevo.state === 'installed' && navigator.serviceWorker.controller){
+            showSwUpdateBanner(reg);
+          }
+        });
+      });
+    }).catch(() => {});
+
+    // cuando el service worker nuevo pasa a mandar de verdad, recargo la página
+    // una sola vez para que se vea ya la versión actualizada
+    let recargando = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if(recargando) return;
+      recargando = true;
+      window.location.reload();
+    });
+  });
+}
+
+function showSwUpdateBanner(reg){
+  if(document.getElementById('swUpdateBanner')) return; // ya lo estoy enseñando, no lo duplico
+  const bar = document.createElement('div');
+  bar.id = 'swUpdateBanner';
+  bar.style.cssText = 'position:fixed; left:0; right:0; bottom:0; z-index:9999; background:#14161C; color:#FFC800; padding:12px 16px; text-align:center; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; font-size:13.5px; box-shadow:0 -6px 20px rgba(0,0,0,0.25);';
+  bar.innerHTML = 'Hay una versión nueva de la app disponible. '
+    + '<button id="swUpdateBtn" style="background:#FFC800; color:#14161C; border:none; padding:7px 14px; border-radius:6px; font-weight:700; margin-left:8px; cursor:pointer;">Actualizar ahora</button>';
+  document.body.appendChild(bar);
+  document.getElementById('swUpdateBtn').addEventListener('click', () => {
+    if(reg.waiting) reg.waiting.postMessage('SKIP_WAITING');
+    bar.remove();
   });
 }
 </script>

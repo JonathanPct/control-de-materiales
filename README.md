@@ -43,10 +43,10 @@ No hace falta instalar nada más: es un único archivo HTML autocontenido.
 
 ## 2. ¿Cómo se guardan los datos ahí?
 
-La app detecta automáticamente dónde se está ejecutando:
+La app usa un guardado con dos niveles, según lo que tengas configurado:
 
-- **Dentro de Claude.ai**: usa el guardado en la nube de Anthropic.
-- **Alojada en GitHub Pages (o cualquier otro sitio)**: usa `localStorage`, la memoria propia del navegador. Sigue guardándose todo solo, sin que tengas que hacer nada — pero **queda guardado en ese navegador y dispositivo concretos**, no en un servidor compartido.
+- **Con Firebase configurado** (ver sección 3): guardado compartido en la nube, con tiempo real entre dispositivos.
+- **Sin Firebase configurado**: usa `localStorage`, la memoria propia del navegador. Sigue guardándose todo solo, sin que tengas que hacer nada — pero **queda guardado en ese navegador y dispositivo concretos**, no en un servidor compartido.
 
 Esto significa que si entras desde el móvil del almacén y luego desde el ordenador de la oficina, cada uno tendrá su propio stock guardado por separado — no se sincronizan automáticamente entre sí.
 
@@ -137,6 +137,14 @@ La app ahora se puede "instalar" como si fuera una app normal del móvil, gracia
 - **iPhone (Safari)**: botón compartir → "Añadir a pantalla de inicio".
 
 Una vez instalada, abre en pantalla completa (sin la barra del navegador) y guarda una copia básica en caché para que, si se corta la conexión un momento, al menos no se quede en blanco.
+
+**Aviso de "hay una versión nueva":** cuando subas cambios en el futuro, a quien tenga la app abierta (o instalada) le aparecerá un banner abajo del todo — *"Hay una versión nueva de la app disponible"* — con un botón **"Actualizar ahora"**. Hasta que no lo pulse, sigue con la versión que ya tenía cargada; no cambia nada de golpe a media tarea.
+
+⚠️ **Importante para que esto funcione:** cada vez que subas un `index.html` con cambios, abre `sw.js` y sube en 1 el número de la primera línea de verdad del archivo:
+```js
+const CACHE_NAME = 'tecnomat-materiales-v2'; // súbelo a v3, v4... cada vez que subas cambios
+```
+Si subes `index.html` nuevo pero te olvidas de tocar `sw.js`, el navegador no se entera de que hay nada distinto y el aviso no salta.
 
 ## 7. Tiempo real, deshacer, actividad y acciones en bloque
 
