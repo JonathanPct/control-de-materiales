@@ -1,0 +1,15 @@
+{
+  "name": "Tecnomat - Control de Materiales",
+  "short_name": "Tecnomat",
+  "description": "Control de stock, montaje, proyectos y pedidos de Tecnomat",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#F7F4EC",
+  "theme_color": "#120E28",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
