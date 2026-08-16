@@ -105,7 +105,7 @@ Dentro de Almacén hay ahora una sección para registrar bobinas (descripción, 
 
 Además, una vez al día (a partir de la hora que configures) la app intenta mandarte un correo con el resumen: si hay materiales con stock bajo, los lista junto con las bobinas que estén por vencer (todo en un solo correo); si no hay stock bajo pero sí bobinas por vencer, manda un correo solo con eso.
 
-**⚠️ Limitación importante:** como esta página es estática (sin servidor), ese aviso diario solo se comprueba cuando alguien tiene la página abierta (lo revisa al entrar y cada 5 minutos mientras esté abierta). Si nadie abre la página ese día, no se manda nada — no hay manera de "despertar" una página estática sola. Si en algún momento necesitáis que el aviso sea 100% fiable aunque nadie tenga la página abierta, hay que montar un disparador aparte en la nube (por ejemplo, una función programada de Firebase); decídmelo y lo preparamos.
+**⚠️ Limitación importante:** como esta página es estática (sin servidor), ese aviso diario solo se comprueba cuando alguien tiene la página abierta (lo revisa al entrar y cada 5 minutos mientras esté abierta). Si nadie abre la página ese día, no se manda nada — no hay manera de "despertar" una página estática sola. Si en algún momento se necesita que el aviso sea 100% fiable aunque nadie tenga la página abierta, haría falta montar un disparador aparte en la nube (por ejemplo, una función programada de Firebase).
 
 ### Cómo activar el envío de correos (EmailJS, gratis)
 
@@ -156,9 +156,9 @@ Si subes `index.html` nuevo pero te olvidas de tocar `sw.js`, el navegador no se
 - **Selección múltiple en el stock**: puedes marcar varias referencias a la vez y cambiarles la ubicación o eliminarlas todas juntas, en vez de una por una.
 - **Histórico de movimientos**: en vez de borrar sin más lo que sobra de las últimas 500 líneas, se archiva resumido por mes (entradas/salidas totales), así no se pierde el dato gordo aunque no se guarde cada línea suelta.
 
-## 8. Restringir la clave de Firebase por dominio (recomendado, hazlo tú en Google Cloud)
+## 8. Restringir la clave de Firebase por dominio (recomendado, requiere consola de Google Cloud)
 
-Esto no es algo que pueda hacer yo por ti desde el código — es un ajuste en la consola de Google, y solo tú tienes acceso a esa cuenta:
+Esto no es un ajuste de código — es una configuración en la consola de Google, y hace falta tener acceso a esa cuenta:
 
 1. Ve a [console.cloud.google.com](https://console.cloud.google.com) y entra con la misma cuenta de Google con la que creaste el proyecto de Firebase.
 2. Arriba, asegúrate de tener seleccionado el proyecto correcto (`almacenamiento-datos-40e38`).
