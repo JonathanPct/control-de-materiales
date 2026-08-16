@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#F7F4EC">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
 <title>Control de Materiales</title>
 <style>
   :root{
@@ -779,7 +782,8 @@
   let state = {
     mode: 'almacen', // 'montaje' | 'almacen' | 'proyecto'
     catalog: [],           // [{code, desc, qty, location}]  qty = stock actual, location = ubicación en almacén
-    movements: [],          // [{id, code, desc, qty, type:'entrada'|'salida', origin, ts}]
+    movements: [],          // [{id, code, desc, qty, type:'entrada'|'salida', origin, ts, tsMs}]
+    movementsArchive: [],   // [{month:'2026-07', entradas, salidas, eliminados}] — lo que se archiva al pasar de 500 líneas
     groups: {                       // 'montaje' = órdenes de montaje, 'proyecto' = proyectos
       montaje: [],                  // [{name, status:'activo'|'finalizado'}]
       proyecto: []
@@ -794,12 +798,13 @@
       avisoHora: 18,          // hora (24h) a partir de la cual se hace la comprobación de fin de día
       emailDestino: ''
     },
-    alerts: { lastDailyCheck: null } // fecha (YYYY-MM-DD) del último aviso diario ya mandado, para no repetirlo
+    alerts: { lastDailyCheck: null, lastWeeklyCheckMs: null } // control de avisos ya mandados, para no repetirlos
   };
   let pendingUnknownCode = null;
   let pendingCodeChoice = null; // {code, matches:[itemIds]} — cuando un código tiene varias referencias y toca elegir
   let catalogSearchTerm = '';
   let globalSearchTerm = ''; // el buscador de arriba de todo, funciona en cualquier sección
+  let selectedStockIds = new Set(); // referencias marcadas en Almacén para acciones en bloque
   let listView = 'servido'; // 'servido' | 'devuelto' — which sub-list is shown in Montaje/Proyecto
   const GROUP_LABELS = { montaje: 'orden', proyecto: 'proyecto' };
   const GROUP_LABELS_CAP = { montaje: 'Orden', proyecto: 'Proyecto' };
@@ -812,11 +817,18 @@
   // que monto a mano y luego los botones dejan de encontrar el artículo (bug que tuve)
   const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 
-  function showStatus(msg){
+  // el segundo parámetro es opcional — si le paso una función, me sale un botón de
+  // "Deshacer" al lado del aviso, para arreglar al momento si me equivoco al escanear
+  function showStatus(msg, undoFn){
     const b = $('#statusBanner');
-    b.textContent = msg;
+    b.innerHTML = esc(msg) + (undoFn ? ' <button id="undoBtn" class="btn-return" style="margin-left:8px; padding:3px 9px; font-size:11px;">↺ Deshacer</button>' : '');
     b.style.display = 'block';
-    setTimeout(()=>{ b.style.display='none'; }, 4500);
+    if(undoFn){
+      const btn = $('#undoBtn');
+      if(btn) btn.addEventListener('click', ()=>{ b.style.display='none'; undoFn(); });
+    }
+    clearTimeout(showStatus._t);
+    showStatus._t = setTimeout(()=>{ b.style.display='none'; }, 8000);
   }
 
   // ---------- Storage ----------
@@ -880,13 +892,14 @@
   }
 
   async function loadAll(){
-    const [catalog, movements, groupsMontaje, groupsProyecto, oldLists, oldProjects, appState, bobinas, settings, alerts, pedidoItems] = await Promise.all([
+    const [catalog, movements, groupsMontaje, groupsProyecto, oldLists, oldProjects, appState, bobinas, settings, alerts, pedidoItems, movementsArchive] = await Promise.all([
       safeGet('catalog'), safeGet('movements'), safeGet('groups_montaje'), safeGet('groups_proyecto'),
       safeGet('lists'), safeGet('projects'), safeGet('app_state'),
-      safeGet('bobinas'), safeGet('settings'), safeGet('alerts_state'), safeGet('pedido_items')
+      safeGet('bobinas'), safeGet('settings'), safeGet('alerts_state'), safeGet('pedido_items'), safeGet('movements_archive')
     ]);
     if(catalog) state.catalog = catalog.map(m => ({id:m.id||uid(), code:m.code, desc:m.desc, qty: typeof m.qty==='number'?m.qty:0, location:m.location||''}));
     if(movements) state.movements = movements;
+    if(movementsArchive) state.movementsArchive = movementsArchive;
     if(bobinas) state.bobinas = bobinas;
     if(pedidoItems) state.pedidoItems = pedidoItems;
     if(settings) state.settings = Object.assign({}, state.settings, settings);
@@ -934,15 +947,77 @@
       }
     }
     render();
-    // reviso si toca mandar el aviso diario nada más cargar, y luego cada 5 min por si la
-    // página se queda abierta y llega la hora configurada mientras tanto
+    // reviso si toca mandar el aviso diario (y el semanal) nada más cargar, y luego cada
+    // 5 min por si la página se queda abierta y llega la hora configurada mientras tanto
     maybeRunDailyCheck();
-    setInterval(maybeRunDailyCheck, 5 * 60 * 1000);
+    maybeRunWeeklyCheck();
+    setInterval(()=>{ maybeRunDailyCheck(); maybeRunWeeklyCheck(); }, 5 * 60 * 1000);
+    setupRealtimeWatchers();
+  }
+
+  // ---------- Tiempo real (solo si Firebase está configurado) ----------
+  // esto hace que si otro dispositivo cambia algo, lo vea aquí sin tener que recargar
+  let unsubscribers = {};
+  function watchKey(key, applyFn){
+    if(!hasFirebase) return;
+    if(unsubscribers[key]) unsubscribers[key](); // por si ya había uno de antes (p.ej. al cambiar de orden)
+    unsubscribers[key] = db.collection(FIRESTORE_COLLECTION).doc(key).onSnapshot(doc => {
+      if(!doc.exists) return;
+      applyFn(doc.data().value);
+      render();
+    }, () => {}); // si falla la conexión no quiero que la app reviente, simplemente no actualiza
+  }
+  function setupRealtimeWatchers(){
+    if(!hasFirebase) return;
+    watchKey('catalog', v => { state.catalog = v.map(m => ({id:m.id||uid(), code:m.code, desc:m.desc, qty: typeof m.qty==='number'?m.qty:0, location:m.location||''})); });
+    watchKey('movements', v => { state.movements = v; });
+    watchKey('bobinas', v => { state.bobinas = v; });
+    watchKey('settings', v => { state.settings = Object.assign({}, state.settings, v); });
+    watchKey('pedido_items', v => { state.pedidoItems = v; });
+    watchCurrentGroup();
+  }
+  // esta la llamo también cada vez que cambio de orden/proyecto, para escuchar la que toca ahora
+  function watchCurrentGroup(){
+    if(!hasFirebase) return;
+    ['montaje','proyecto'].forEach(kind => {
+      const name = state.current[kind];
+      if(!name) return;
+      watchKey('group_'+kind+'_'+slug(name), v => { state.groupData[kind+'::'+name] = v; });
+    });
   }
 
   function saveAppState(){ safeSet('app_state', {mode:state.mode, currentMontajeOrder:state.current.montaje, currentProject:state.current.proyecto}); }
   function saveCatalog(){ safeSet('catalog', state.catalog); }
-  function saveMovements(){ safeSet('movements', state.movements.slice(0,500)); }
+  function saveMovements(){
+    // en vez de tirar sin más lo que sobra de 500, lo resumo por mes y lo guardo aparte
+    // — así no pierdo el dato gordo (cuánto entró/salió), aunque no conserve cada línea
+    if(state.movements.length > 600){
+      const overflow = state.movements.slice(500);
+      state.movements = state.movements.slice(0,500);
+      archiveMovements(overflow);
+    }
+    safeSet('movements', state.movements);
+  }
+
+  async function archiveMovements(oldOnes){
+    const byMonth = {};
+    oldOnes.forEach(m=>{
+      const month = (m.tsMs ? new Date(m.tsMs) : new Date()).toISOString().slice(0,7);
+      if(!byMonth[month]) byMonth[month] = {month, entradas:0, salidas:0, eliminados:0};
+      if(m.type==='entrada') byMonth[month].entradas += m.qty;
+      else if(m.type==='salida') byMonth[month].salidas += m.qty;
+      else if(m.type==='eliminado') byMonth[month].eliminados++;
+    });
+    const existing = (await safeGet('movements_archive')) || [];
+    Object.values(byMonth).forEach(entry=>{
+      const found = existing.find(a=>a.month===entry.month);
+      if(found){ found.entradas+=entry.entradas; found.salidas+=entry.salidas; found.eliminados+=entry.eliminados; }
+      else existing.push(entry);
+    });
+    existing.sort((a,b)=>b.month.localeCompare(a.month));
+    state.movementsArchive = existing;
+    safeSet('movements_archive', existing);
+  }
   function saveGroups(kind){ safeSet('groups_'+kind, state.groups[kind]); }
   function saveGroupData(kind, name){ safeSet('group_'+kind+'_'+slug(name), state.groupData[kind+'::'+name]); }
   function saveBobinas(){ safeSet('bobinas', state.bobinas); }
@@ -991,10 +1066,29 @@
   // ahora recibo el item directo (ya resuelto por quien me llama), porque con varias
   // referencias por código ya no me vale con buscar "el" item de ese código
   function adjustStock(item, qty, type, origin){
-    item.qty += (type === 'entrada' ? qty : -qty);
-    state.movements.unshift({id:uid(), code:item.code, desc:item.desc, qty, type, origin, ts:nowStr()});
-    saveCatalog();
+    const delta = (type === 'entrada' ? qty : -qty);
+    // actualizo ya mismo en local para que la pantalla responda al instante,
+    // sin esperar a que vuelva la confirmación del servidor
+    item.qty += delta;
+    state.movements.unshift({id:uid(), code:item.code, desc:item.desc, qty, type, origin, ts:nowStr(), tsMs:Date.now()});
     saveMovements();
+
+    if(hasFirebase){
+      // aquí uso una transacción en vez de guardar el array tal cual — así, si dos
+      // dispositivos tocan el mismo material casi a la vez, no se pisan el cambio
+      // (sin esto, "el último que guarda gana" y se podría perder un ajuste entero)
+      const ref = db.collection(FIRESTORE_COLLECTION).doc('catalog');
+      db.runTransaction(async tx => {
+        const doc = await tx.get(ref);
+        const serverCatalog = doc.exists ? doc.data().value : [];
+        const serverItem = serverCatalog.find(m => m.id === item.id);
+        if(serverItem) serverItem.qty += delta;
+        else serverCatalog.push(Object.assign({}, item));
+        tx.set(ref, {value: serverCatalog, updatedAt: firebase.firestore.FieldValue.serverTimestamp()});
+      }).catch(e => showStatus('No se pudo sincronizar el stock: '+e.message));
+    }else{
+      saveCatalog();
+    }
   }
 
   function changeLocation(id){
@@ -1015,7 +1109,7 @@
       : '¿Eliminar "'+item.code+' — '+item.desc+'" del stock? Esta acción no se puede deshacer.';
     if(!confirm(msg)) return;
     // antes de borrarla del todo dejo constancia en el historial de que existió y con cuántas unidades se quedó
-    state.movements.unshift({id:uid(), code:item.code, desc:item.desc, qty:item.qty, type:'eliminado', origin:'Almacén (referencia eliminada)', ts:nowStr()});
+    state.movements.unshift({id:uid(), code:item.code, desc:item.desc, qty:item.qty, type:'eliminado', origin:'Almacén (referencia eliminada)', ts:nowStr(), tsMs:Date.now()});
     saveMovements();
     state.catalog = state.catalog.filter(m => m.id !== id);
     saveCatalog();
@@ -1147,6 +1241,65 @@
     saveAlerts();
   }
 
+  // los materiales que más se han movido (entradas+salidas juntas) en los últimos X días —
+  // la uso tanto para el resumen semanal como para el panel de actividad en Almacén
+  function getTopMovedMaterials(days){
+    const cutoff = Date.now() - days*86400000;
+    const totales = {};
+    state.movements.forEach(m => {
+      if(m.type === 'eliminado') return; // eso no es un movimiento de cantidad, no cuenta aquí
+      if(m.tsMs && m.tsMs < cutoff) return; // los movimientos viejos sin tsMs los dejo entrar, mejor de más que perder el dato
+      const key = m.code+'|'+m.desc;
+      totales[key] = (totales[key]||0) + m.qty;
+    });
+    return Object.entries(totales)
+      .sort((a,b) => b[1]-a[1])
+      .slice(0,5)
+      .map(([key,total]) => { const [code,desc] = key.split('|'); return {code, desc, total}; });
+  }
+
+  // barritas hechas con CSS, nada de librería de gráficas — con esto me sobra para ver
+  // de un vistazo qué se mueve más, no hace falta más aparato
+  function renderActivityBars(){
+    const top = getTopMovedMaterials(30);
+    if(!top.length) return '<div style="color:var(--text-faint); font-size:12.5px;">Todavía no hay movimientos suficientes.</div>';
+    const max = Math.max(...top.map(t=>t.total));
+    return top.map(t => `
+      <div style="margin-bottom:8px;">
+        <div style="display:flex; justify-content:space-between; font-size:11.5px; margin-bottom:2px;">
+          <span style="color:var(--text-primary); font-weight:600;">${esc(t.code)} · ${esc(t.desc)}</span>
+          <span style="color:var(--text-faint);">${t.total} uds</span>
+        </div>
+        <div style="background:var(--bg-raised); border-radius:4px; height:6px; overflow:hidden;">
+          <div style="background:var(--accent); height:100%; width:${Math.max(4, Math.round(t.total/max*100))}%;"></div>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  // el resumen semanal — igual que el diario, solo actúa una vez pasada la hora configurada,
+  // pero aquí controlo "una vez por semana" mirando cuánto ha pasado desde la última vez
+  function maybeRunWeeklyCheck(){
+    const ahora = new Date();
+    if(ahora.getHours() < state.settings.avisoHora) return;
+    if(state.alerts.lastWeeklyCheckMs && (Date.now() - state.alerts.lastWeeklyCheckMs) < 7*86400000) return;
+
+    const top = getTopMovedMaterials(7);
+    let msg = 'Resumen semanal de almacén:\n\n';
+    if(top.length){
+      msg += 'Materiales con más movimiento esta semana:\n';
+      top.forEach(t => { msg += '- '+t.code+' · '+t.desc+' · '+t.total+' uds movidas\n'; });
+    }else{
+      msg += 'No ha habido movimientos esta semana.\n';
+    }
+    msg += '\nReferencias con stock bajo ahora mismo: '+getLowStockItems().length+'\n';
+    msg += 'Bobinas a punto de expirar: '+getExpiringBobinas().length+'\n';
+    sendEmailAlert('Resumen semanal de almacén', msg);
+
+    state.alerts.lastWeeklyCheckMs = Date.now();
+    saveAlerts();
+  }
+
   // ---------- Add / Return ----------
   function addEntryToTarget(target, item, qty){
     // si la entrada es de una versión vieja sin itemId, la reconozco por código como antes
@@ -1177,7 +1330,10 @@
       const qty = askQty(label);
       if(qty === null) return;
       adjustStock(item, qty, 'entrada', 'Almacén (escaneo)');
-      showStatus('Entrada registrada: +'+qty+' · '+label);
+      showStatus('Entrada registrada: +'+qty+' · '+label, ()=>{
+        adjustStock(item, qty, 'salida', 'Deshacer entrada');
+        render();
+      });
       render();
       return;
     }
@@ -1185,7 +1341,14 @@
       const qty = askQty(label);
       if(qty === null) return;
       addToPedido(item, qty);
-      showStatus('Añadido al pedido: '+qty+' · '+label);
+      showStatus('Añadido al pedido: '+qty+' · '+label, ()=>{
+        const it = state.pedidoItems.find(p => p.itemId===item.id);
+        if(!it) return;
+        it.qty -= qty;
+        if(it.qty <= 0) state.pedidoItems = state.pedidoItems.filter(p => p !== it);
+        savePedido();
+        render();
+      });
       return;
     }
     // montaje / proyecto
@@ -1204,6 +1367,10 @@
     addEntryToTarget(target, item, qty);
     persistCurrentTarget();
     adjustStock(item, qty, 'salida', originLabel());
+    // busco la línea que acabo de tocar para poder deshacerla con returnEntry, que ya
+    // se encarga de devolver el stock y quitarla (o restarle) de la lista de servido
+    const touchedEntry = target.servido.find(e => e.itemId === item.id);
+    showStatus('Servido: '+qty+' · '+label, touchedEntry ? ()=>{ returnEntry(touchedEntry.id, qty); } : null);
     render();
   }
 
@@ -1326,6 +1493,7 @@
       }
     }
     saveAppState();
+    watchCurrentGroup();
     render();
   }
 
@@ -1608,6 +1776,8 @@
 
   // aquí ya tengo las filas leídas (venga de Excel o de PDF) y las convierto en líneas
   // de la orden/proyecto actual, buscando cada una en el stock por código o por referencia
+  let pendingOrderPlan = null; // {plan:[...], targetKey} — el archivo ya leído, esperando que confirme antes de tocar nada
+
   async function processOrderFile(file){
     const target = currentTarget();
     if(!target){ showStatus('Selecciona '+(state.mode==='montaje'?'una orden de montaje':'un proyecto')+' antes de subir el archivo.'); return; }
@@ -1623,40 +1793,57 @@
     }
     if(!rows.length){ showStatus('No he podido sacar ninguna línea de ese archivo.'); return; }
 
-    let servidas = 0, plantillas = 0, incompletas = 0;
-    rows.forEach(r => {
+    // aquí solo miro contra el stock, no toco nada todavía — quiero que primero lo veas
+    // y confirmes, por si el archivo se ha leído mal (sobre todo con el PDF)
+    const plan = rows.map(r => {
       let item = r.code ? findInCatalog(r.code) : null;
-      if(!item && r.desc){
-        item = state.catalog.find(m => m.desc.toLowerCase() === r.desc.toLowerCase());
-      }
+      if(!item && r.desc) item = state.catalog.find(m => m.desc.toLowerCase() === r.desc.toLowerCase());
       if(item){
-        const qty = Math.min(r.qty, item.qty);
-        if(qty > 0){
-          addEntryToTarget(target, item, qty);
-          adjustStock(item, qty, 'salida', originLabel()+' (archivo de orden)');
-          servidas++;
-          if(qty < r.qty) incompletas++;
-        }else{
-          incompletas++;
-        }
-      }else{
-        // no existe en el stock — lo doy de alta como plantilla (0 unidades reales) y dejo
-        // la cantidad pedida anotada en la orden, a la espera de que se complete con el
-        // código de verdad más adelante (o se meta stock real de esa referencia)
-        const nuevoCodigo = r.code || ('REF-'+slug(r.desc || uid()));
-        const nuevoItem = createCatalogItem(nuevoCodigo, r.desc || '(sin referencia)', '');
+        const toServe = Math.min(r.qty, item.qty);
+        return {kind: toServe<=0 ? 'sin-stock' : (toServe<r.qty ? 'parcial' : 'ok'), itemId:item.id, code:item.code, desc:item.desc, requested:r.qty, toServe};
+      }
+      return {kind:'nueva', code:r.code, desc:r.desc, requested:r.qty};
+    });
+    pendingOrderPlan = {plan, targetKey: state.mode+'::'+state.current[state.mode]};
+    render();
+  }
+
+  function applyOrderPlan(){
+    if(!pendingOrderPlan) return;
+    const target = currentTarget();
+    if(!target){ pendingOrderPlan = null; render(); return; }
+    let servidas = 0, plantillas = 0, incompletas = 0;
+    pendingOrderPlan.plan.forEach(p => {
+      if(p.kind === 'nueva'){
+        const nuevoCodigo = p.code || ('REF-'+slug(p.desc || uid()));
+        const nuevoItem = createCatalogItem(nuevoCodigo, p.desc || '(sin referencia)', '');
         const now = nowStr();
-        target.servido.unshift({id:uid(), itemId:nuevoItem.id, code:nuevoItem.code, desc:nuevoItem.desc, qty:r.qty, firstTs:now, ts:now});
+        target.servido.unshift({id:uid(), itemId:nuevoItem.id, code:nuevoItem.code, desc:nuevoItem.desc, qty:p.requested, firstTs:now, ts:now});
         plantillas++;
+      }else if(p.toServe > 0){
+        const item = state.catalog.find(m => m.id === p.itemId);
+        if(!item){ incompletas++; return; }
+        addEntryToTarget(target, item, p.toServe);
+        adjustStock(item, p.toServe, 'salida', originLabel()+' (archivo de orden)');
+        servidas++;
+        if(p.kind === 'parcial') incompletas++;
+      }else{
+        incompletas++;
       }
     });
     persistCurrentTarget();
+    pendingOrderPlan = null;
     render();
     showStatus(
-      'Archivo procesado ('+rows.length+' líneas): '+servidas+' servidas del stock'+
+      'Archivo aplicado: '+servidas+' servidas del stock'+
       (plantillas ? ', '+plantillas+' creadas como plantilla nueva (sin stock real todavía)' : '')+
       (incompletas ? ', '+incompletas+' con menos stock del pedido' : '')+'.'
     );
+  }
+
+  function cancelOrderPlan(){
+    pendingOrderPlan = null;
+    render();
   }
 
   let camStream = null;
@@ -1932,6 +2119,7 @@
 
     const rows = items.map(m => `
       <div class="stock-row">
+        <input type="checkbox" class="stock-select" data-select-id="${m.id}" ${selectedStockIds.has(m.id)?'checked':''} style="flex:none; width:16px; height:16px; margin-right:4px;">
         <div class="row-main">
           <div class="row-code">${esc(m.code)}</div>
           <div class="row-desc">${esc(m.desc)}</div>
@@ -1947,6 +2135,15 @@
     `).join('');
 
     el.innerHTML = `
+      ${selectedStockIds.size ? `
+      <div class="panel" style="margin-bottom:14px;">
+        <p class="panel-title">${selectedStockIds.size} referencia(s) seleccionada(s)</p>
+        <div class="backup-row">
+          <button class="cam-btn" id="bulkLocBtn">Cambiar ubicación a todas</button>
+          <button class="btn-return" id="bulkDelBtn">🗑 Eliminar seleccionadas</button>
+        </div>
+      </div>` : ''}
+
       <div class="ticket">
         <div class="ticket-header">
           <span class="ticket-title">Stock actual</span>
@@ -1970,6 +2167,39 @@
     `;
 
     el.insertAdjacentHTML('beforeend', renderBobinasPanelHTML());
+
+    el.querySelectorAll('[data-select-id]').forEach(cb=>{
+      cb.addEventListener('change', e=>{
+        if(e.target.checked) selectedStockIds.add(cb.dataset.selectId);
+        else selectedStockIds.delete(cb.dataset.selectId);
+        renderStockMain();
+      });
+    });
+    const bulkLocBtn = $('#bulkLocBtn');
+    if(bulkLocBtn) bulkLocBtn.addEventListener('click', ()=>{
+      const val = prompt('Nueva ubicación para '+selectedStockIds.size+' referencias:');
+      if(val === null) return;
+      selectedStockIds.forEach(id=>{
+        const item = state.catalog.find(m=>m.id===id);
+        if(item) item.location = val.trim();
+      });
+      saveCatalog();
+      selectedStockIds.clear();
+      render();
+    });
+    const bulkDelBtn = $('#bulkDelBtn');
+    if(bulkDelBtn) bulkDelBtn.addEventListener('click', ()=>{
+      if(!confirm('¿Eliminar '+selectedStockIds.size+' referencias del stock? Esta acción no se puede deshacer.')) return;
+      selectedStockIds.forEach(id=>{
+        const item = state.catalog.find(m=>m.id===id);
+        if(item) state.movements.unshift({id:uid(), code:item.code, desc:item.desc, qty:item.qty, type:'eliminado', origin:'Almacén (eliminación en bloque)', ts:nowStr(), tsMs:Date.now()});
+      });
+      saveMovements();
+      state.catalog = state.catalog.filter(m=>!selectedStockIds.has(m.id));
+      saveCatalog();
+      selectedStockIds.clear();
+      render();
+    });
 
     el.querySelectorAll('[data-loc-btn]').forEach(btn=>{
       btn.addEventListener('click', ()=> changeLocation(btn.dataset.locBtn));
@@ -2249,8 +2479,17 @@
         </div>` : ''}
 
         <div class="panel">
+          <p class="panel-title">Actividad (últimos 30 días)</p>
+          ${renderActivityBars()}
+        </div>
+
+        <div class="panel">
           <p class="panel-title">Últimos movimientos</p>
           ${movRows || '<div style="color:var(--text-faint); font-size:12.5px;">Sin movimientos todavía.</div>'}
+          ${state.movementsArchive.length ? `
+          <p style="font-size:11px; color:var(--text-faint); margin-top:8px;">
+            Histórico más antiguo archivado por mes: ${state.movementsArchive.slice(0,3).map(a=>a.month+' ('+a.entradas+' entr. / '+a.salidas+' sal.)').join(' · ')}${state.movementsArchive.length>3?'…':''}
+          </p>` : ''}
         </div>
       `;
 
@@ -2310,7 +2549,28 @@
     const totalServido = target ? target.servido.reduce((a,e)=>a+e.qty,0) : 0;
     const totalDevuelto = target ? target.devuelto.reduce((a,e)=>a+e.qty,0) : 0;
 
-    el.innerHTML = `
+    const planHtml = pendingOrderPlan ? `
+      <div class="panel" style="border-color:var(--accent);">
+        <p class="panel-title">Revisa antes de aplicar (${pendingOrderPlan.plan.length} líneas)</p>
+        <div style="max-height:260px; overflow-y:auto; margin-bottom:10px;">
+          ${pendingOrderPlan.plan.map(p => {
+            const estadoTxt = p.kind==='ok' ? 'se sirve entera'
+              : p.kind==='parcial' ? 'solo hay '+p.toServe+' de '+p.requested
+              : p.kind==='sin-stock' ? 'sin stock, no se sirve'
+              : 'no existe — se crea como plantilla';
+            const color = p.kind==='ok' ? 'var(--success)' : (p.kind==='nueva'||p.kind==='sin-stock' ? 'var(--danger)' : 'var(--accent)');
+            return `<div style="font-size:12px; padding:5px 0; border-bottom:1px dashed var(--border);">
+              <strong>${esc(p.code||'(sin código)')}</strong> · ${esc(p.desc||'')} · ${p.requested} uds
+              <div style="color:${color};">${estadoTxt}</div>
+            </div>`;
+          }).join('')}
+        </div>
+        <button class="btn primary" id="applyOrderPlanBtn">✓ Confirmar y aplicar</button>
+        <button class="btn ghost-danger" id="cancelOrderPlanBtn">Cancelar</button>
+      </div>
+    ` : '';
+
+    el.innerHTML = planHtml + `
       <div class="panel">
         <p class="panel-title">Resumen</p>
         <div class="stat-row"><span>Unidades servidas</span><span class="num">${totalServido}</span></div>
@@ -2363,6 +2623,10 @@
       if(e.target.files[0]) processOrderFile(e.target.files[0]);
       e.target.value = ''; // así puedo volver a subir el mismo archivo si hace falta
     });
+    const applyOrderPlanBtn = $('#applyOrderPlanBtn');
+    if(applyOrderPlanBtn) applyOrderPlanBtn.addEventListener('click', applyOrderPlan);
+    const cancelOrderPlanBtn = $('#cancelOrderPlanBtn');
+    if(cancelOrderPlanBtn) cancelOrderPlanBtn.addEventListener('click', cancelOrderPlan);
 
     const searchInput = $('#catalogSearch');
     if(searchInput){
@@ -2398,6 +2662,14 @@
   }
 
 })();
+
+// esto lo registro fuera del bloque de la app — si falla (p.ej. porque no hay https),
+// no quiero que se lleve por delante el resto de la aplicación
+if('serviceWorker' in navigator){
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+}
 </script>
 </body>
 </html>
