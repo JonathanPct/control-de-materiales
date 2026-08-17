@@ -473,6 +473,28 @@
   #camOverlay video{width:min(90vw,420px); border-radius:10px; border:2px solid var(--accent);}
   #camOverlay .cam-status{color:var(--text-primary); font-size:13px;}
 
+  #signatureOverlay{
+    position:fixed; inset:0; background:rgba(20,15,5,.55);
+    display:none; align-items:center; justify-content:center; z-index:999; padding:16px;
+  }
+  .signature-card{
+    width:100%; max-width:460px;
+    background:var(--bg-panel);
+    border:1px solid var(--border);
+    border-radius:14px;
+    padding:20px;
+    box-shadow:0 12px 40px rgba(0,0,0,0.3);
+  }
+  .signature-items{
+    max-height:140px; overflow-y:auto;
+    background:var(--bg-raised);
+    border-radius:8px;
+    padding:8px 10px;
+    font-size:12.5px;
+  }
+  .signature-items .sig-item{padding:3px 0; border-bottom:1px dashed var(--border);}
+  .signature-items .sig-item:last-child{border-bottom:none;}
+
   .status-banner{
     font-size:12px;
     padding:8px 12px;
@@ -656,6 +678,22 @@
   <button class="btn ghost-danger" style="width:auto;padding:8px 20px;" id="camClose">Cerrar cámara</button>
 </div>
 
+<div id="signatureOverlay" style="display:none;">
+  <div class="signature-card">
+    <p class="eyebrow" style="margin-bottom:2px;">Entrega de material</p>
+    <h1 style="font-size:19px; margin-bottom:10px;">Firma de recepción</h1>
+    <div id="signatureItemsList" class="signature-items"></div>
+    <input type="text" id="recipientNameInput" placeholder="Nombre de quien recoge y firma (opcional)" style="width:100%; margin:10px 0; background:var(--bg-raised); border:1px solid var(--border); color:var(--text-primary); padding:10px 12px; border-radius:8px; font-size:14px;">
+    <p style="font-size:12px; color:var(--text-muted); margin:0 0 6px 0;">Firma aquí abajo con el dedo o el ratón:</p>
+    <canvas id="signatureCanvas" style="width:100%; height:160px; background:#fff; border-radius:8px; touch-action:none; display:block;"></canvas>
+    <div class="scanner-actions" style="margin-top:10px;">
+      <button class="cam-btn" id="clearSignatureBtn">Limpiar firma</button>
+      <button class="btn ghost-danger" id="cancelDeliveryBtn" style="flex:1; margin:0;">Cancelar</button>
+    </div>
+    <button class="btn primary" id="confirmDeliveryBtn" style="margin-top:8px;">✓ Confirmar entrega</button>
+  </div>
+</div>
+
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
@@ -789,9 +827,11 @@
       proyecto: []
     },
     current: { montaje: null, proyecto: null }, // nombre del grupo activo en cada modo
-    groupData: {},            // clave "montaje::Nombre" / "proyecto::Nombre" -> {servido:[], devuelto:[]}
+    groupData: {},            // clave "montaje::Nombre" / "proyecto::Nombre" -> emptyGroupData()
     bobinas: [],              // [{id, desc, matricula, expira:'YYYY-MM-DD', createdAt}]
     pedidoItems: [],          // [{id, code, desc, qty}] - el listado que voy montando para pedir material
+    pendingDelivery: null,    // {items:[...], recipientName} - el pedido ya congelado, esperando la firma
+    deliveries: [],            // [{id, items, recipientName, signature, ts, tsMs}] - entregas ya firmadas
     settings: {               // esto lo configuro yo mismo desde el panel de avisos
       bobinaAvisoDias: 3,     // con cuántos días de margen quiero que me avise antes de la fecha de devolución
       stockBajoUmbral: 2,     // a partir de qué cantidad considero que el stock está bajo
@@ -811,6 +851,9 @@
 
   const $ = sel => document.querySelector(sel);
   const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+  // la forma por defecto de los datos de una orden/proyecto: servido, devuelto, y la
+  // solicitud pendiente de recoger (quién la pide + lo que lleva, antes de firmar)
+  function emptyGroupData(){ return {servido:[], devuelto:[], pendiente:{requesterName:'', items:[]}}; }
   const nowStr = () => new Date().toLocaleString('es-ES');
   const slug = s => s.trim().toLowerCase().replace(/[^a-z0-9]+/g,'-');
   // esto lo necesito porque si un código o un nombre trae comillas, < o & rompe el HTML
@@ -893,16 +936,17 @@
   }
 
   async function loadAll(){
-    const [catalog, movements, groupsMontaje, groupsProyecto, oldLists, oldProjects, appState, bobinas, settings, alerts, pedidoItems, movementsArchive] = await Promise.all([
+    const [catalog, movements, groupsMontaje, groupsProyecto, oldLists, oldProjects, appState, bobinas, settings, alerts, pedidoItems, movementsArchive, deliveries] = await Promise.all([
       safeGet('catalog'), safeGet('movements'), safeGet('groups_montaje'), safeGet('groups_proyecto'),
       safeGet('lists'), safeGet('projects'), safeGet('app_state'),
-      safeGet('bobinas'), safeGet('settings'), safeGet('alerts_state'), safeGet('pedido_items'), safeGet('movements_archive')
+      safeGet('bobinas'), safeGet('settings'), safeGet('alerts_state'), safeGet('pedido_items'), safeGet('movements_archive'), safeGet('deliveries')
     ]);
     if(catalog) state.catalog = catalog.map(m => ({id:m.id||uid(), code:m.code, desc:m.desc, qty: typeof m.qty==='number'?m.qty:0, location:m.location||''}));
     if(movements) state.movements = movements;
     if(movementsArchive) state.movementsArchive = movementsArchive;
     if(bobinas) state.bobinas = bobinas;
     if(pedidoItems) state.pedidoItems = pedidoItems;
+    if(deliveries) state.deliveries = deliveries;
     if(settings) state.settings = Object.assign({}, state.settings, settings);
     if(alerts) state.alerts = alerts;
     if(groupsMontaje) state.groups.montaje = groupsMontaje;
@@ -921,7 +965,7 @@
     if(!groupsMontaje && oldLists && oldLists.montaje && (oldLists.montaje.servido.length || oldLists.montaje.devuelto.length)){
       const migrated = oldLists.montaje;
       state.groups.montaje = [{name:'General', status:'activo'}];
-      state.groupData['montaje::General'] = migrated;
+      state.groupData['montaje::General'] = Object.assign(emptyGroupData(), migrated);
       saveGroups('montaje');
       safeSet('group_montaje_'+slug('General'), migrated);
       if(!state.current.montaje) state.current.montaje = 'General';
@@ -937,14 +981,14 @@
       const key = 'montaje::'+state.current.montaje;
       if(!state.groupData[key]){
         const gd = await safeGet('group_montaje_'+slug(state.current.montaje));
-        state.groupData[key] = gd || {servido:[], devuelto:[]};
+        state.groupData[key] = gd ? Object.assign(emptyGroupData(), gd) : emptyGroupData(); // así los datos antiguos sin 'pendiente' no petan
       }
     }
     if(state.current.proyecto){
       const key = 'proyecto::'+state.current.proyecto;
       if(!state.groupData[key]){
         const gd = await safeGet('group_proyecto_'+slug(state.current.proyecto));
-        state.groupData[key] = gd || {servido:[], devuelto:[]};
+        state.groupData[key] = gd ? Object.assign(emptyGroupData(), gd) : emptyGroupData(); // así los datos antiguos sin 'pendiente' no petan
       }
     }
     render();
@@ -1023,6 +1067,27 @@
   function saveGroupData(kind, name){ safeSet('group_'+kind+'_'+slug(name), state.groupData[kind+'::'+name]); }
   function saveBobinas(){ safeSet('bobinas', state.bobinas); }
   function savePedido(){ safeSet('pedido_items', state.pedidoItems); }
+  function saveDeliveries(){ safeSet('deliveries', state.deliveries.slice(0,200)); } // con las últimas 200 entregas de sobra
+
+  function exportDeliveries(){
+    if(!state.deliveries.length){ showStatus('Todavía no hay entregas firmadas.'); return; }
+    const rows = [];
+    state.deliveries.forEach(d => {
+      d.items.forEach(it => {
+        rows.push({
+          Fecha:d.ts,
+          Origen: (d.groupKind==='montaje'?'Montaje/Venta: ':'Proyecto: ')+(d.groupName||''),
+          'Pedido por':d.requesterName||'',
+          'Recogido por':d.recipientName||'',
+          Código:it.code, Referencia:it.desc, Cantidad:it.qty
+        });
+      });
+    });
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(rows);
+    XLSX.utils.book_append_sheet(wb, ws, 'Entregas firmadas');
+    XLSX.writeFile(wb, `entregas_firmadas_${Date.now()}.xlsx`);
+  }
   function saveSettings(){ safeSet('settings', state.settings); }
   function saveAlerts(){ safeSet('alerts_state', state.alerts); }
 
@@ -1184,6 +1249,91 @@
     render();
   }
 
+  // ---------- Entrega con firma (el material no se descuenta hasta que se firma) ----------
+  // prepara la recogida de la solicitud pendiente de la orden/proyecto activo — hasta
+  // que no se firme, no se toca el stock ni se mueve nada a "servido"
+  function prepareDelivery(){
+    const target = currentTarget();
+    if(!target || !target.pendiente.items.length){ showStatus('La solicitud está vacía, añade algún material primero.'); return; }
+    // compruebo que todavía hay stock real de cada línea — puede haber pasado tiempo
+    // desde que se montó la solicitud y algo haberse agotado mientras tanto
+    const faltantes = [];
+    target.pendiente.items.forEach(it => {
+      const item = it.itemId ? state.catalog.find(m => m.id === it.itemId) : findInCatalog(it.code);
+      const disponible = item ? item.qty : 0;
+      if(disponible < it.qty) faltantes.push(it.code+' — '+it.desc+' (pedidas '+it.qty+', solo hay '+disponible+')');
+    });
+    if(faltantes.length){
+      showStatus('No se puede preparar la recogida, falta stock de: '+faltantes.join(', ')+'. Ajusta las cantidades o repón stock primero.');
+      return;
+    }
+    state.pendingDelivery = {
+      groupKind: state.mode,
+      groupName: state.current[state.mode],
+      requesterName: target.pendiente.requesterName,
+      items: target.pendiente.items.map(it => ({itemId:it.itemId, code:it.code, desc:it.desc, qty:it.qty})),
+      recipientName: ''
+    };
+    render();
+  }
+
+  function cancelDelivery(){
+    state.pendingDelivery = null;
+    resetSignatureCanvas();
+    render();
+  }
+
+  // esto es lo que de verdad descuenta el stock y mueve las líneas a "servido" — hasta
+  // este momento no se ha tocado nada, todo estaba solo en la solicitud pendiente
+  function confirmDelivery(signatureDataUrl){
+    if(!state.pendingDelivery) return;
+    const key = state.pendingDelivery.groupKind+'::'+state.pendingDelivery.groupName;
+    const target = state.groupData[key];
+    if(!target){ showStatus('La orden/proyecto de esta solicitud ya no existe.'); state.pendingDelivery = null; resetSignatureCanvas(); render(); return; }
+    // reviso el stock una última vez, por si ha cambiado justo mientras se firmaba
+    const faltantes = [];
+    state.pendingDelivery.items.forEach(it => {
+      const item = it.itemId ? state.catalog.find(m => m.id === it.itemId) : findInCatalog(it.code);
+      const disponible = item ? item.qty : 0;
+      if(disponible < it.qty) faltantes.push(it.code+' — '+it.desc);
+    });
+    if(faltantes.length){
+      showStatus('Ya no hay stock suficiente de: '+faltantes.join(', ')+'. Cancela y ajusta la solicitud.');
+      return;
+    }
+    const origen = (state.pendingDelivery.groupKind==='montaje'?'Montaje/Venta: ':'Proyecto: ')+state.pendingDelivery.groupName
+      + ' — pedido por '+(state.pendingDelivery.requesterName||'sin especificar')
+      + (state.pendingDelivery.recipientName ? ' — recogido por '+state.pendingDelivery.recipientName : '');
+    state.pendingDelivery.items.forEach(it => {
+      const item = it.itemId ? state.catalog.find(m => m.id === it.itemId) : findInCatalog(it.code);
+      if(!item) return;
+      // aquí sí que entra de verdad en el listado de "servido" de la orden/proyecto,
+      // ahora que ya está firmada la recogida
+      addEntryToTarget(target, item, it.qty);
+      adjustStock(item, it.qty, 'salida', origen);
+    });
+    // vacío la solicitud pendiente de esa orden/proyecto, ya se ha convertido en servido
+    target.pendiente = {requesterName:'', items:[]};
+    safeSet('group_'+state.pendingDelivery.groupKind+'_'+slug(state.pendingDelivery.groupName), target);
+
+    state.deliveries.unshift({
+      id: uid(),
+      groupKind: state.pendingDelivery.groupKind,
+      groupName: state.pendingDelivery.groupName,
+      items: state.pendingDelivery.items,
+      requesterName: state.pendingDelivery.requesterName,
+      recipientName: state.pendingDelivery.recipientName,
+      signature: signatureDataUrl,
+      ts: nowStr(),
+      tsMs: Date.now()
+    });
+    saveDeliveries();
+    state.pendingDelivery = null;
+    resetSignatureCanvas();
+    render();
+    showStatus('Recogida confirmada y firmada — stock descontado.');
+  }
+
   // días que faltan para la fecha (negativo = ya venció)
   function daysUntil(dateStr){
     const hoy = new Date(); hoy.setHours(0,0,0,0);
@@ -1325,6 +1475,14 @@
 
   // esta es la que hace la acción de verdad una vez que ya sé qué referencia concreta es
   // (la uso tanto si solo había una coincidencia como si venimos de elegirla en el selector)
+  // añado (o sumo) una línea a la solicitud pendiente de una orden/proyecto — esto
+  // todavía NO toca el stock, eso solo pasa al firmar la recogida
+  function addToPendiente(target, item, qty){
+    const existente = target.pendiente.items.find(it => it.itemId === item.id);
+    if(existente) existente.qty += qty;
+    else target.pendiente.items.push({id:uid(), itemId:item.id, code:item.code, desc:item.desc, qty});
+  }
+
   function proceedWithItem(item){
     const label = item.code+' — '+item.desc;
     if(state.mode === 'almacen'){
@@ -1352,26 +1510,34 @@
       });
       return;
     }
-    // montaje / proyecto
+    // montaje / proyecto — esto ya NO sirve al instante: se queda en la solicitud
+    // pendiente de esa orden/proyecto, y el stock no se toca hasta que se firme la recogida
     if(item.qty <= 0){
-      showStatus('No se puede servir "'+label+'" — no queda stock (0 unidades). Dalo de alta en Almacén primero.');
+      showStatus('No se puede solicitar "'+label+'" — no queda stock (0 unidades). Dalo de alta en Almacén primero.');
       return;
     }
     const target = currentTarget();
     if(!target) return;
+    if(!target.pendiente.requesterName){
+      showStatus('Indica quién hace la solicitud (campo "¿Quién lo pide?" de arriba) antes de escanear.');
+      return;
+    }
     const qty = askQty(label);
     if(qty === null) return;
     if(qty > item.qty){
-      showStatus('Solo quedan '+item.qty+' unidad(es) de "'+label+'" en stock — no se puede servir más de eso.');
+      showStatus('Solo quedan '+item.qty+' unidad(es) de "'+label+'" en stock — no se puede pedir más de eso.');
       return;
     }
-    addEntryToTarget(target, item, qty);
+    addToPendiente(target, item, qty);
     persistCurrentTarget();
-    adjustStock(item, qty, 'salida', originLabel());
-    // busco la línea que acabo de tocar para poder deshacerla con returnEntry, que ya
-    // se encarga de devolver el stock y quitarla (o restarle) de la lista de servido
-    const touchedEntry = target.servido.find(e => e.itemId === item.id);
-    showStatus('Servido: '+qty+' · '+label, touchedEntry ? ()=>{ returnEntry(touchedEntry.id, qty); } : null);
+    showStatus('Añadido a la solicitud: '+qty+' · '+label, ()=>{
+      const it = target.pendiente.items.find(p => p.itemId===item.id);
+      if(!it) return;
+      it.qty -= qty;
+      if(it.qty <= 0) target.pendiente.items = target.pendiente.items.filter(p => p !== it);
+      persistCurrentTarget();
+      render();
+    });
     render();
   }
 
@@ -1400,7 +1566,7 @@
       }else if(state.mode === 'pedido'){
         showStatus('El código "'+code+'" no está en el stock, así que no lo puedo añadir al pedido.');
       }else{
-        showStatus('No se puede servir "'+code+'" — no queda stock (0 unidades). Dalo de alta en Almacén primero.');
+        showStatus('No se puede solicitar "'+code+'" — no queda stock (0 unidades). Dalo de alta en Almacén primero.');
       }
       $('#scanInput').value = '';
       $('#scanInput').focus();
@@ -1490,7 +1656,7 @@
       const key = kind+'::'+name;
       if(!state.groupData[key]){
         const gd = await safeGet('group_'+kind+'_'+slug(name));
-        state.groupData[key] = gd || {servido:[], devuelto:[]};
+        state.groupData[key] = gd ? Object.assign(emptyGroupData(), gd) : emptyGroupData(); // así los datos antiguos sin 'pendiente' no petan
       }
     }
     saveAppState();
@@ -1506,7 +1672,7 @@
       saveGroups(kind);
     }
     const key = kind+'::'+name;
-    if(!state.groupData[key]) state.groupData[key] = {servido:[], devuelto:[]};
+    if(!state.groupData[key]) state.groupData[key] = emptyGroupData();
     saveGroupData(kind, name);
     await selectGroup(kind, name);
   }
@@ -1539,7 +1705,7 @@
       const key = kind+'::'+g.name;
       if(!state.groupData[key]){
         const gd = await safeGet('group_'+kind+'_'+slug(g.name));
-        state.groupData[key] = gd || {servido:[], devuelto:[]};
+        state.groupData[key] = gd ? Object.assign(emptyGroupData(), gd) : emptyGroupData(); // así los datos antiguos sin 'pendiente' no petan
       }
     }
   }
@@ -1552,7 +1718,7 @@
     const summary = [];
     state.groups[kind].forEach(g => {
       const name = g.name;
-      const pd = state.groupData[kind+'::'+name] || {servido:[], devuelto:[]};
+      const pd = state.groupData[kind+'::'+name] || emptyGroupData();
       const rows = [
         ...pd.servido.map(e => ({Código:e.code, Referencia:e.desc, Cantidad:e.qty, Entregado:e.firstTs||e.ts, Actualizado:e.ts, Estado:'Servido'})),
         ...pd.devuelto.map(e => ({Código:e.code, Referencia:e.desc, Cantidad:e.qty, Entregado:e.deliveredAt||'', Devuelto:e.ts, Estado:'Devuelto'}))
@@ -1621,8 +1787,8 @@
             proyecto: (data.projects||[]).map(p => typeof p === 'string' ? {name:p, status:'activo'} : {name:p.name, status:p.status||'activo'})
           };
           state.groupData = {};
-          if(data.lists && data.lists.montaje) state.groupData['montaje::General'] = data.lists.montaje;
-          Object.keys(data.projectData||{}).forEach(name => { state.groupData['proyecto::'+name] = data.projectData[name]; });
+          if(data.lists && data.lists.montaje) state.groupData['montaje::General'] = Object.assign(emptyGroupData(), data.lists.montaje);
+          Object.keys(data.projectData||{}).forEach(name => { state.groupData['proyecto::'+name] = Object.assign(emptyGroupData(), data.projectData[name]); });
         }
         saveCatalog(); saveMovements(); saveGroups('montaje'); saveGroups('proyecto');
         Object.keys(state.groupData).forEach(key => {
@@ -1813,38 +1979,134 @@
     if(!pendingOrderPlan) return;
     const target = currentTarget();
     if(!target){ pendingOrderPlan = null; render(); return; }
-    let servidas = 0, plantillas = 0, incompletas = 0;
+    if(!target.pendiente.requesterName){
+      showStatus('Indica quién hace la solicitud (campo "¿Quién lo pide?") antes de aplicar el archivo.');
+      return;
+    }
+    let añadidas = 0, plantillas = 0;
     pendingOrderPlan.plan.forEach(p => {
       if(p.kind === 'nueva'){
         const nuevoCodigo = p.code || ('REF-'+slug(p.desc || uid()));
         const nuevoItem = createCatalogItem(nuevoCodigo, p.desc || '(sin referencia)', '');
-        const now = nowStr();
-        target.servido.unshift({id:uid(), itemId:nuevoItem.id, code:nuevoItem.code, desc:nuevoItem.desc, qty:p.requested, firstTs:now, ts:now});
+        addToPendiente(target, nuevoItem, p.requested);
         plantillas++;
-      }else if(p.toServe > 0){
-        const item = state.catalog.find(m => m.id === p.itemId);
-        if(!item){ incompletas++; return; }
-        addEntryToTarget(target, item, p.toServe);
-        adjustStock(item, p.toServe, 'salida', originLabel()+' (archivo de orden)');
-        servidas++;
-        if(p.kind === 'parcial') incompletas++;
       }else{
-        incompletas++;
+        const item = state.catalog.find(m => m.id === p.itemId);
+        if(!item) return;
+        // pido la cantidad solicitada de verdad — si ahora mismo no hay stock suficiente,
+        // eso se comprueba (y se avisa) al preparar la recogida, no aquí
+        addToPendiente(target, item, p.requested);
+        añadidas++;
       }
     });
     persistCurrentTarget();
     pendingOrderPlan = null;
     render();
     showStatus(
-      'Archivo aplicado: '+servidas+' servidas del stock'+
-      (plantillas ? ', '+plantillas+' creadas como plantilla nueva (sin stock real todavía)' : '')+
-      (incompletas ? ', '+incompletas+' con menos stock del pedido' : '')+'.'
+      'Archivo añadido a la solicitud pendiente: '+añadidas+' línea(s)'+
+      (plantillas ? ', '+plantillas+' creadas como plantilla nueva' : '')+
+      '. Prepara la recogida y firma cuando corresponda.'
     );
   }
 
   function cancelOrderPlan(){
     pendingOrderPlan = null;
     render();
+  }
+
+  // ---------- Firma de recepción (canvas) ----------
+  let sigDrawing = false;
+  let sigHasStrokes = false;
+  let sigCtx = null;
+
+  function renderSignatureOverlay(){
+    const overlay = $('#signatureOverlay');
+    if(!overlay) return;
+    if(!state.pendingDelivery){
+      overlay.style.display = 'none';
+      return;
+    }
+    overlay.style.display = 'flex';
+    const list = $('#signatureItemsList');
+    list.innerHTML = `<div class="sig-item" style="color:var(--accent); font-weight:700;">Pedido por: ${esc(state.pendingDelivery.requesterName || 'sin especificar')}</div>`
+      + state.pendingDelivery.items.map(it =>
+        `<div class="sig-item">${esc(it.code)} · ${esc(it.desc)} · <strong>${it.qty} uds</strong></div>`
+      ).join('');
+    const nameInput = $('#recipientNameInput');
+    if(nameInput && !nameInput.value) nameInput.value = state.pendingDelivery.recipientName || '';
+
+    setupSignatureCanvas();
+
+    const clearBtn = $('#clearSignatureBtn');
+    if(clearBtn) clearBtn.onclick = clearSignature;
+    const cancelBtn = $('#cancelDeliveryBtn');
+    if(cancelBtn) cancelBtn.onclick = cancelDelivery;
+    const confirmBtn = $('#confirmDeliveryBtn');
+    if(confirmBtn) confirmBtn.onclick = () => {
+      if(!sigHasStrokes){ showStatus('Falta la firma — hay que firmar antes de confirmar la entrega.'); return; }
+      state.pendingDelivery.recipientName = (nameInput.value || '').trim();
+      const canvas = $('#signatureCanvas');
+      confirmDelivery(canvas.toDataURL('image/png'));
+    };
+  }
+
+  // ajusto el canvas a la resolución real de la pantalla, si no la firma sale borrosa
+  // o desplazada en móviles con densidad de píxeles alta
+  function setupSignatureCanvas(){
+    const canvas = $('#signatureCanvas');
+    if(!canvas || canvas.dataset.ready) return; // solo lo preparo una vez por apertura
+    canvas.dataset.ready = '1';
+    const ratio = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * ratio;
+    canvas.height = rect.height * ratio;
+    sigCtx = canvas.getContext('2d');
+    sigCtx.scale(ratio, ratio);
+    sigCtx.lineWidth = 2.2;
+    sigCtx.lineCap = 'round';
+    sigCtx.lineJoin = 'round';
+    sigCtx.strokeStyle = '#14161C';
+    sigHasStrokes = false;
+
+    const posFromEvent = e => {
+      const r = canvas.getBoundingClientRect();
+      return {x: e.clientX - r.left, y: e.clientY - r.top};
+    };
+    canvas.onpointerdown = e => {
+      sigDrawing = true;
+      sigHasStrokes = true;
+      const p = posFromEvent(e);
+      sigCtx.beginPath();
+      sigCtx.moveTo(p.x, p.y);
+      canvas.setPointerCapture(e.pointerId);
+    };
+    canvas.onpointermove = e => {
+      if(!sigDrawing) return;
+      const p = posFromEvent(e);
+      sigCtx.lineTo(p.x, p.y);
+      sigCtx.stroke();
+    };
+    const stopDrawing = () => { sigDrawing = false; };
+    canvas.onpointerup = stopDrawing;
+    canvas.onpointerleave = stopDrawing;
+    canvas.onpointercancel = stopDrawing;
+  }
+
+  function clearSignature(){
+    const canvas = $('#signatureCanvas');
+    if(!canvas || !sigCtx) return;
+    const ratio = window.devicePixelRatio || 1;
+    sigCtx.clearRect(0, 0, canvas.width/ratio, canvas.height/ratio);
+    sigHasStrokes = false;
+  }
+
+  // al cerrar la pantalla (cancelar o confirmar) marco el canvas como "no preparado" para
+  // que la próxima vez que se abra vuelva a calcular bien el tamaño desde cero
+  function resetSignatureCanvas(){
+    const canvas = $('#signatureCanvas');
+    if(canvas) delete canvas.dataset.ready;
+    sigCtx = null;
+    sigHasStrokes = false;
   }
 
   let camStream = null;
@@ -1898,6 +2160,7 @@
     else if(state.mode === 'pedido') renderPedidoMain();
     else renderMainList();
     renderSidePanel();
+    renderSignatureOverlay();
   }
 
   // el buscador de arriba de todo — funciona igual estés en Montaje, Almacén, Proyecto o Pedido
@@ -2024,19 +2287,23 @@
     const currentGroup = currentName ? findGroup(groupKind, currentName) : null;
     const groupFinalizado = !!(currentGroup && currentGroup.status==='finalizado');
     const disabled = (groupKind && !currentName) || groupFinalizado;
+    const target = groupKind ? currentTarget() : null;
     const placeholder = (groupKind && !currentName) ? 'Selecciona '+(groupKind==='montaje'?'una orden de montaje/venta':'un proyecto')+' para escanear…'
       : groupFinalizado ? (groupKind==='montaje'?'Orden finalizada':'Proyecto finalizado')+' — reactívala para seguir registrando…'
       : state.mode==='almacen' ? 'Escanea para registrar una entrada de stock…'
       : state.mode==='pedido' ? 'Escanea o introduce el código para añadirlo al pedido…'
-      : 'Escanea o introduce el código…';
+      : 'Escanea o introduce el código para añadirlo a la solicitud…';
     const hint = state.mode==='almacen'
       ? 'Cada código escaneado aquí suma unidades al stock (entrada). Para material desconocido, te pedirá una referencia.'
       : state.mode==='pedido'
       ? 'Cada código añade esa cantidad al pedido — esto no descuenta stock, es solo un listado para pedir y mandar por correo.'
-      : 'Cada código escaneado aquí resta unidades del stock (salida) y queda registrado en esta lista.';
-    const submitLabel = state.mode==='almacen' ? '+ Entrada' : state.mode==='pedido' ? '+ Añadir' : '✓ Servir';
+      : 'Esto NO descuenta stock todavía — se queda en la solicitud pendiente hasta que se prepare la recogida y se firme.';
+    const submitLabel = state.mode==='almacen' ? '+ Entrada' : state.mode==='pedido' ? '+ Añadir' : '+ Solicitar';
     zone.innerHTML = `
       <div class="scanner-panel">
+        ${groupKind && target ? `
+          <input type="text" id="requesterNameInput" placeholder="¿Quién lo pide? (obligatorio para poder escanear)" value="${esc(target.pendiente.requesterName)}" style="width:100%; margin-bottom:8px; background:var(--bg-raised); border:1px solid ${target.pendiente.requesterName?'var(--border)':'var(--danger)'}; color:var(--text-primary); padding:11px 12px; border-radius:8px; font-size:14px;">
+        ` : ''}
         <div class="scanner-row">
           <input id="scanInput" type="text" placeholder="${placeholder}" ${disabled?'disabled':''} autocomplete="off">
         </div>
@@ -2068,6 +2335,13 @@
         ` : ''}
       </div>
     `;
+    const requesterInput = $('#requesterNameInput');
+    if(requesterInput){
+      requesterInput.addEventListener('change', () => {
+        target.pendiente.requesterName = requesterInput.value.trim();
+        persistCurrentTarget();
+      });
+    }
     const input = $('#scanInput');
     if(input){
       input.addEventListener('keydown', e => {
@@ -2333,6 +2607,28 @@
       return;
     }
 
+    const pendienteHtml = target.pendiente.items.length ? `
+      <div class="ticket" style="margin-bottom:14px; border-color:var(--accent);">
+        <div class="ticket-header">
+          <span class="ticket-title">Solicitud pendiente de recoger</span>
+          <span class="ticket-title">${target.pendiente.items.length} referencias</span>
+        </div>
+        <div class="ticket-body">
+          ${target.pendiente.items.map(it => `
+            <div class="ticket-row" data-id="${it.id}">
+              <div class="row-main">
+                <div class="row-code">${esc(it.code)}</div>
+                <div class="row-desc">${esc(it.desc)}</div>
+              </div>
+              <div class="row-qty">x${it.qty}</div>
+              <button class="btn-return" data-pendiente-del="${it.id}">🗑 Quitar</button>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+      <button class="btn primary" id="prepareGroupDeliveryBtn" style="margin-bottom:14px;">📝 Preparar recogida y firmar</button>
+    ` : '';
+
     const tabs = `
       <div class="scanner-row" style="margin-bottom:10px;">
         <button class="mode-btn" data-view="servido" style="flex:none; padding:8px 16px; ${listView==='servido'?'background:var(--accent); color:#150A28;':'background:var(--bg-panel); border:1px solid var(--border);'}">Servido (${target.servido.length})</button>
@@ -2390,7 +2686,17 @@
       `;
     }
 
-    el.innerHTML = tabs + bodyHtml;
+    el.innerHTML = pendienteHtml + tabs + bodyHtml;
+
+    el.querySelectorAll('[data-pendiente-del]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        target.pendiente.items = target.pendiente.items.filter(it => it.id !== btn.dataset.pendienteDel);
+        persistCurrentTarget();
+        render();
+      });
+    });
+    const prepareBtn = $('#prepareGroupDeliveryBtn');
+    if(prepareBtn) prepareBtn.addEventListener('click', prepareDelivery);
 
     el.querySelectorAll('[data-view]').forEach(btn=>{
       btn.addEventListener('click', ()=>{
@@ -2574,6 +2880,7 @@
     el.innerHTML = planHtml + `
       <div class="panel">
         <p class="panel-title">Resumen</p>
+        <div class="stat-row"><span>Solicitud pendiente</span><span class="num">${target.pendiente.items.reduce((a,it)=>a+it.qty,0)} uds</span></div>
         <div class="stat-row"><span>Unidades servidas</span><span class="num">${totalServido}</span></div>
         <div class="stat-row"><span>Unidades devueltas</span><span class="num">${totalDevuelto}</span></div>
         <div class="stat-row"><span>Referencias en stock</span><span class="num">${state.catalog.length}</span></div>
@@ -2609,6 +2916,25 @@
         <div class="stat-row"><span>${state.mode==='montaje'?'Órdenes creadas':'Proyectos creados'}</span><span class="num">${state.groups[state.mode].length}</span></div>
         <button class="btn" id="exportAllBtn">${state.mode==='montaje'?'Exportar todas las órdenes':'Exportar todos los proyectos'}</button>
       </div>` : ''}
+
+      ${(()=>{
+        const entregasAqui = state.deliveries.filter(d => d.groupKind===state.mode && d.groupName===state.current[state.mode]).slice(0,8);
+        if(!entregasAqui.length) return '';
+        return `
+        <div class="panel">
+          <p class="panel-title">Entregas firmadas (esta orden/proyecto)</p>
+          ${entregasAqui.map(d => `
+            <div style="padding:8px 0; border-bottom:1px dashed var(--border); font-size:12px; display:flex; gap:8px; align-items:center;">
+              <img src="${d.signature}" alt="firma" style="width:52px; height:32px; object-fit:contain; background:#fff; border-radius:4px; border:1px solid var(--border);">
+              <div style="flex:1;">
+                <div>Pedido: ${esc(d.requesterName||'—')} · Recogió: ${esc(d.recipientName||'—')}</div>
+                <div style="color:var(--text-faint); font-size:11px;">${d.ts} · ${d.items.length} ref.</div>
+              </div>
+            </div>
+          `).join('')}
+          <button class="btn" id="exportDeliveriesBtn" style="margin-top:8px;">Exportar historial de entregas</button>
+        </div>`;
+      })()}
     `;
 
     const exportBtn = $('#exportBtn');
@@ -2618,6 +2944,8 @@
     });
     const clearBtn = $('#clearBtn');
     if(clearBtn) clearBtn.addEventListener('click', clearCurrentList);
+    const exportDeliveriesBtn = $('#exportDeliveriesBtn');
+    if(exportDeliveriesBtn) exportDeliveriesBtn.addEventListener('click', exportDeliveries);
 
     const orderFileInput = $('#orderFile');
     if(orderFileInput) orderFileInput.addEventListener('change', e=>{

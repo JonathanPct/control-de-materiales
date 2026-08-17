@@ -120,14 +120,14 @@ Si no rellenas `emailjsConfig`, los avisos siguen apareciendo igualmente como ba
 
 ## 5. Crear una orden/proyecto subiendo un archivo (Excel, CSV o PDF)
 
-Dentro de Montaje/Venta o Proyecto, con una orden o proyecto seleccionado, en el panel lateral hay un botón **"📄 Subir Excel / CSV / PDF"**. Busca cada línea del archivo en el stock (por código o por referencia/descripción) y la añade como material servido de esa orden:
+Dentro de Montaje/Venta o Proyecto, con una orden o proyecto seleccionado (y el campo "¿Quién lo pide?" relleno), en el panel lateral hay un botón **"📄 Subir Excel / CSV / PDF"**. Busca cada línea del archivo en el stock (por código o por referencia) y la añade a la **solicitud pendiente** de esa orden (ver sección 8) — no descuenta stock directamente, eso solo pasa al preparar la recogida y firmar:
 
 - **Excel/CSV**: fiable — reconoce columnas llamadas Código, Referencia/Descripción y Cantidad (o similares).
 - **PDF**: "mejor esfuerzo" — un PDF no tiene columnas de verdad, así que la app intenta sacar de cada línea de texto algo con forma de "referencia ... cantidad al final". Funciona bien con listados sencillos, pero si el PDF tiene un diseño complicado (tablas con columnas separadas visualmente, varias líneas por artículo, etc.) puede no acertar. Si falla, prueba subiendo el Excel/CSV original en su lugar.
 
-Si una línea del archivo no coincide con ningún material del stock, la app la da de alta automáticamente como una **referencia "plantilla"** (sin stock real todavía, con la cantidad pedida anotada en la orden) para que puedas completarla más tarde con su código de verdad y meterle stock real.
+Si una línea del archivo no coincide con ningún material del stock, la app la da de alta automáticamente como una **referencia "plantilla"** (sin stock real todavía) y la añade igualmente a la solicitud pendiente, para completarla más tarde con su código de verdad y meterle stock real.
 
-Desde esta última actualización, antes de aplicar el archivo la app te enseña un resumen línea a línea (qué se sirve entero, qué queda incompleto, qué se crea como plantilla) y tienes que pulsar **"Confirmar y aplicar"** — así puedes cancelar si el archivo se ha leído mal, sobre todo con PDFs complicados.
+Antes de aplicar el archivo, la app enseña un resumen línea a línea (qué hay en stock, qué queda incompleto, qué se crea como plantilla) y hay que pulsar **"Confirmar y aplicar"** — así se puede cancelar si el archivo se ha leído mal, sobre todo con PDFs complicados.
 
 ## 6. Instalar la app en el móvil (PWA)
 
@@ -142,21 +142,34 @@ Una vez instalada, abre en pantalla completa (sin la barra del navegador) y guar
 
 ⚠️ **Importante para que esto funcione:** cada vez que subas un `index.html` con cambios, abre `sw.js` y sube en 1 el número de la primera línea de verdad del archivo:
 ```js
-const CACHE_NAME = 'tecnomat-materiales-v2'; // súbelo a v3, v4... cada vez que subas cambios
+const CACHE_NAME = 'tecnomat-materiales-v4'; // súbelo a v5, v6... cada vez que subas cambios
 ```
 Si subes `index.html` nuevo pero te olvidas de tocar `sw.js`, el navegador no se entera de que hay nada distinto y el aviso no salta.
 
 ## 7. Tiempo real, deshacer, actividad y acciones en bloque
 
 - **Tiempo real**: si tienes Firebase configurado, los cambios que haga otra persona desde otro dispositivo (o desde otra pestaña tuya) se ven solos, sin recargar la página.
-- **Deshacer**: después de escanear algo (entrada, servir, añadir al pedido), sale un botón "↺ Deshacer" junto al aviso durante unos segundos, por si te equivocas.
+- **Deshacer**: después de escanear algo (entrada de stock, añadir a una solicitud, añadir al pedido), sale un botón "↺ Deshacer" junto al aviso durante unos segundos, por si te equivocas.
 - **Menos riesgo de perder cantidades**: cuando dos dispositivos ajustan el mismo material casi a la vez (con Firebase configurado), la app usa una transacción para que no se pise un cambio con el otro.
 - **Panel "Actividad"** (dentro de Almacén): los 5 materiales que más se han movido en los últimos 30 días, con una barra sencilla.
 - **Resumen semanal por correo**: además del aviso diario de stock bajo, una vez a la semana te llega un resumen con lo que más se ha movido.
 - **Selección múltiple en el stock**: puedes marcar varias referencias a la vez y cambiarles la ubicación o eliminarlas todas juntas, en vez de una por una.
 - **Histórico de movimientos**: en vez de borrar sin más lo que sobra de las últimas 500 líneas, se archiva resumido por mes (entradas/salidas totales), así no se pierde el dato gordo aunque no se guarde cada línea suelta.
 
-## 8. Restringir la clave de Firebase por dominio (recomendado, requiere consola de Google Cloud)
+## 8. Solicitud de taller con firma de recogida (Montaje/Venta y Proyecto)
+
+Todo el material que se sirve desde una orden de Montaje/Venta o un Proyecto pasa por este flujo — no hay escaneo directo que descuente stock al momento, siempre queda constancia de quién lo pidió y quién lo recogió:
+
+1. Con la orden/proyecto seleccionada, se rellena el campo **"¿Quién lo pide?"** (obligatorio — sin él no deja escanear).
+2. Se escanea o busca el material necesario. Cada línea se añade a la **"Solicitud pendiente de recoger"** — esto todavía **no descuenta stock**.
+3. Cuando el material está listo, se pulsa **"📝 Preparar recogida y firmar"** — en este momento la app comprueba que hay stock real de cada línea (si falta alguna, avisa y no deja continuar hasta ajustar cantidades o reponer stock).
+4. Se le entrega el dispositivo a la persona del taller que recoge el material, que firma con el dedo (o el ratón) en la pantalla. Ahí se ve tanto quién lo pidió como el listado de lo que se lleva.
+5. Al pulsar **"Confirmar entrega"**, es cuando de verdad se descuenta el stock y las líneas pasan a formar parte del listado "Servido" de esa orden/proyecto — hasta ese momento no se ha tocado nada, por si se cancela a mitad de camino.
+6. Queda guardado un registro (quién pidió, quién recogió y firmó, qué materiales) en "Entregas firmadas" dentro de esa misma orden/proyecto, exportable a Excel.
+
+**Nota:** el apartado **Pedido** es una cosa distinta y no lleva firma — sirve para pedir material que falta en el almacén (por ejemplo, para reponer stock desde un proveedor), y sigue funcionando como un simple listado que se manda por correo.
+
+## 9. Restringir la clave de Firebase por dominio (recomendado, requiere consola de Google Cloud)
 
 Esto no es un ajuste de código — es una configuración en la consola de Google, y hace falta tener acceso a esa cuenta:
 
