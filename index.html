@@ -974,7 +974,7 @@
     for(const g of state.groups.proyecto){
       if(!state.groupData['proyecto::'+g.name]){
         const legacy = await safeGet('project_'+slug(g.name));
-        if(legacy){ state.groupData['proyecto::'+g.name] = legacy; saveGroupData('proyecto', g.name); }
+        if(legacy){ state.groupData['proyecto::'+g.name] = Object.assign(emptyGroupData(), legacy); saveGroupData('proyecto', g.name); }
       }
     }
     if(state.current.montaje){
@@ -2286,10 +2286,14 @@
     const currentName = groupKind ? state.current[groupKind] : null;
     const currentGroup = currentName ? findGroup(groupKind, currentName) : null;
     const groupFinalizado = !!(currentGroup && currentGroup.status==='finalizado');
-    const disabled = (groupKind && !currentName) || groupFinalizado;
     const target = groupKind ? currentTarget() : null;
+    // en Montaje/Proyecto, sin "quién lo pide" no dejo ni escribir en el escáner —
+    // así no hay forma de que parezca que el botón "no hace nada" sin más explicación
+    const faltaSolicitante = !!(groupKind && target && !target.pendiente.requesterName);
+    const disabled = (groupKind && !currentName) || groupFinalizado || faltaSolicitante;
     const placeholder = (groupKind && !currentName) ? 'Selecciona '+(groupKind==='montaje'?'una orden de montaje/venta':'un proyecto')+' para escanear…'
       : groupFinalizado ? (groupKind==='montaje'?'Orden finalizada':'Proyecto finalizado')+' — reactívala para seguir registrando…'
+      : faltaSolicitante ? 'Rellena "¿Quién lo pide?" arriba antes de escanear…'
       : state.mode==='almacen' ? 'Escanea para registrar una entrada de stock…'
       : state.mode==='pedido' ? 'Escanea o introduce el código para añadirlo al pedido…'
       : 'Escanea o introduce el código para añadirlo a la solicitud…';
@@ -2302,7 +2306,8 @@
     zone.innerHTML = `
       <div class="scanner-panel">
         ${groupKind && target ? `
-          <input type="text" id="requesterNameInput" placeholder="¿Quién lo pide? (obligatorio para poder escanear)" value="${esc(target.pendiente.requesterName)}" style="width:100%; margin-bottom:8px; background:var(--bg-raised); border:1px solid ${target.pendiente.requesterName?'var(--border)':'var(--danger)'}; color:var(--text-primary); padding:11px 12px; border-radius:8px; font-size:14px;">
+          <input type="text" id="requesterNameInput" placeholder="¿Quién lo pide? (obligatorio para poder escanear)" value="${esc(target.pendiente.requesterName)}" style="width:100%; margin-bottom:${faltaSolicitante?'4px':'8px'}; background:var(--bg-raised); border:1px solid ${target.pendiente.requesterName?'var(--border)':'var(--danger)'}; color:var(--text-primary); padding:11px 12px; border-radius:8px; font-size:14px;">
+          ${faltaSolicitante ? `<div style="color:var(--danger); font-size:12px; font-weight:600; margin-bottom:8px;">⚠ Escribe aquí quién hace la solicitud y pulsa fuera del campo — el escáner está bloqueado hasta entonces.</div>` : ''}
         ` : ''}
         <div class="scanner-row">
           <input id="scanInput" type="text" placeholder="${placeholder}" ${disabled?'disabled':''} autocomplete="off">
@@ -2337,6 +2342,22 @@
     `;
     const requesterInput = $('#requesterNameInput');
     if(requesterInput){
+      // en cuanto escribo algo, quito el bloqueo del escáner al momento — no hace
+      // falta salir del campo para que se note que ya se puede escanear
+      requesterInput.addEventListener('input', () => {
+        const tieneNombre = requesterInput.value.trim().length > 0;
+        target.pendiente.requesterName = requesterInput.value.trim(); // en memoria ya, para que el escaneo lo vea al instante
+        requesterInput.style.borderColor = tieneNombre ? 'var(--border)' : 'var(--danger)';
+        const scanEl = $('#scanInput'), camEl = $('#camBtn'), submitEl = $('#scanSubmitBtn');
+        if(tieneNombre && scanEl && scanEl.disabled && !groupFinalizado){
+          scanEl.disabled = false; camEl.disabled = false; submitEl.disabled = false;
+          scanEl.placeholder = 'Escanea o introduce el código para añadirlo a la solicitud…';
+          scanEl.focus();
+        }else if(!tieneNombre && scanEl){
+          scanEl.disabled = true; camEl.disabled = true; submitEl.disabled = true;
+          scanEl.placeholder = 'Rellena "¿Quién lo pide?" arriba antes de escanear…';
+        }
+      });
       requesterInput.addEventListener('change', () => {
         target.pendiente.requesterName = requesterInput.value.trim();
         persistCurrentTarget();
