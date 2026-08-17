@@ -1027,7 +1027,11 @@
     ['montaje','proyecto'].forEach(kind => {
       const name = state.current[kind];
       if(!name) return;
-      watchKey('group_'+kind+'_'+slug(name), v => { state.groupData[kind+'::'+name] = v; });
+      // aquí estaba el fallo: escribía "v" tal cual, sin pasar por emptyGroupData(),
+      // así que en cuanto Firestore mandaba el primer dato (que no tenía 'pendiente'
+      // porque la orden es de antes de esta función) se cargaba encima del que sí
+      // lo tenía bien puesto, y la app petaba al leer target.pendiente.requesterName
+      watchKey('group_'+kind+'_'+slug(name), v => { state.groupData[kind+'::'+name] = Object.assign(emptyGroupData(), v); });
     });
   }
 
