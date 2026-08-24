@@ -287,6 +287,32 @@
     color:var(--text-muted);
   }
   .ticket-body{max-height:520px; overflow-y:auto;}
+
+  .hoja-pedido-table{
+    width:100%;
+    border-collapse:collapse;
+    font-size:12.5px;
+    font-family:ui-monospace,"SF Mono",Consolas,monospace;
+  }
+  .hoja-pedido-table th{
+    text-align:left;
+    padding:8px 10px;
+    background:var(--bg-raised);
+    color:var(--text-muted);
+    text-transform:uppercase;
+    font-size:10.5px;
+    letter-spacing:.04em;
+    position:sticky;
+    top:0;
+  }
+  .hoja-pedido-table td{
+    padding:8px 10px;
+    border-bottom:1px dashed var(--border);
+    color:var(--text-primary);
+    white-space:nowrap;
+  }
+  .hoja-pedido-table td:nth-child(3){white-space:normal; min-width:180px;}
+  .hoja-pedido-table tr:last-child td{border-bottom:none;}
   .ticket-row{
     display:grid;
     grid-template-columns:1fr auto auto auto;
@@ -1173,6 +1199,26 @@
     const val = prompt('Ubicación para '+item.code+' — '+item.desc, item.location || '');
     if(val === null) return;
     item.location = val.trim();
+    saveCatalog();
+    render();
+  }
+
+  // esto es para cuando un artículo ya existía antes de tener categorías (por ejemplo
+  // los que llegaron por un Excel importado) — así se le puede poner o cambiar la
+  // categoría a mano en cualquier momento, sin tener que volver a crearlo
+  function changeCategoria(id){
+    const item = state.catalog.find(m => m.id === id);
+    if(!item) return;
+    const opciones = CATEGORIAS_STOCK.map((c,i)=>(i+1)+'. '+c).join('\n');
+    const val = prompt('Categoría para '+item.code+' — '+item.desc+':\n\n'+opciones+'\n\nEscribe el número, el nombre exacto, o déjalo en blanco para quitarla.', item.categoria || '');
+    if(val === null) return;
+    const texto = val.trim();
+    if(!texto){ item.categoria = ''; }
+    else{
+      const porNumero = CATEGORIAS_STOCK[parseInt(texto,10)-1];
+      const porNombre = CATEGORIAS_STOCK.find(c => c.toLowerCase() === texto.toLowerCase());
+      item.categoria = porNumero || porNombre || texto;
+    }
     saveCatalog();
     render();
   }
@@ -2556,6 +2602,7 @@
           <span class="stock-qty ${m.qty>0?'ok':'low'}">${m.qty}</span>
           ${m.specs ? `<button class="cam-btn" style="padding:6px 10px; font-size:11px;" data-specs-btn="${m.id}">ℹ️ Características</button>` : ''}
           <button class="cam-btn" style="padding:6px 10px; font-size:11px;" data-loc-btn="${m.id}">Cambiar ubicación</button>
+          <button class="cam-btn" style="padding:6px 10px; font-size:11px;" data-cat-btn="${m.id}">${m.categoria?'Cambiar categoría':'+ Categoría'}</button>
           <button class="cam-btn" style="padding:6px 10px; font-size:11px;" data-dup-btn="${esc(m.code)}">+ Otra referencia</button>
           <button class="btn-return" style="padding:6px 10px; font-size:11px;" data-del-btn="${m.id}">🗑 Eliminar</button>
         </div>
@@ -2636,6 +2683,9 @@
 
     el.querySelectorAll('[data-loc-btn]').forEach(btn=>{
       btn.addEventListener('click', ()=> changeLocation(btn.dataset.locBtn));
+    });
+    el.querySelectorAll('[data-cat-btn]').forEach(btn=>{
+      btn.addEventListener('click', ()=> changeCategoria(btn.dataset.catBtn));
     });
     el.querySelectorAll('[data-del-btn]').forEach(btn=>{
       btn.addEventListener('click', ()=> deleteStockItem(btn.dataset.delBtn));
@@ -2848,14 +2898,53 @@
     ` : '';
 
     const tabs = `
-      <div class="scanner-row" style="margin-bottom:10px;">
+      <div class="scanner-row" style="margin-bottom:10px; flex-wrap:wrap;">
+        <button class="mode-btn" data-view="hoja" style="flex:none; padding:8px 16px; ${listView==='hoja'?'background:var(--accent); color:#150A28;':'background:var(--bg-panel); border:1px solid var(--border);'}">📋 Hoja de pedido</button>
         <button class="mode-btn" data-view="servido" style="flex:none; padding:8px 16px; ${listView==='servido'?'background:var(--accent); color:#150A28;':'background:var(--bg-panel); border:1px solid var(--border);'}">Servido (${target.servido.length})</button>
         <button class="mode-btn" data-view="devuelto" style="flex:none; padding:8px 16px; ${listView==='devuelto'?'background:var(--accent); color:#150A28;':'background:var(--bg-panel); border:1px solid var(--border);'}">Devuelto (${target.devuelto.length})</button>
       </div>
     `;
 
     let bodyHtml;
-    if(listView === 'devuelto'){
+    if(listView === 'hoja'){
+      // esta es la misma tabla que ya llevaba el Excel (OT, Fecha, Artículo, Cantidad,
+      // Reserva, Recibido) pero ahora se ve también aquí dentro, en pantalla — junta lo
+      // que todavía está pendiente con lo que ya se entregó y firmó
+      const ot = state.current[state.mode] || '';
+      const filasHoja = [
+        ...target.pendiente.items.map(it => ({fecha:nowStr(), articulo:it.code+' — '+it.desc, cantidad:it.qty, reserva:it.reservado, recibido:''})),
+        ...target.servido.map(e => ({fecha:e.firstTs||e.ts, articulo:e.code+' — '+e.desc, cantidad:e.qty, reserva:true, recibido:e.firstTs||e.ts}))
+      ];
+      bodyHtml = `
+        <div class="ticket">
+          <div class="ticket-header">
+            <span class="ticket-title">Hoja de pedido de materiales</span>
+            <span class="ticket-title">OT: ${esc(ot)}</span>
+          </div>
+          <div class="ticket-body" style="overflow-x:auto;">
+            ${filasHoja.length ? `
+            <table class="hoja-pedido-table">
+              <thead>
+                <tr><th>OT</th><th>Fecha</th><th>Artículo</th><th>Cantidad</th><th>Reserva</th><th>Recibido</th></tr>
+              </thead>
+              <tbody>
+                ${filasHoja.map(f => `
+                  <tr>
+                    <td>${esc(ot)}</td>
+                    <td>${f.fecha}</td>
+                    <td>${esc(f.articulo)}</td>
+                    <td>${f.cantidad}</td>
+                    <td>${f.reserva ? '✓' : ''}</td>
+                    <td>${f.recibido || ''}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+            ` : '<div class="empty-state">Todavía no hay nada pedido ni servido en esta orden/proyecto.</div>'}
+          </div>
+        </div>
+      `;
+    }else if(listView === 'devuelto'){
       const rows = target.devuelto.map(e => `
         <div class="devuelto-row">
           <div>
