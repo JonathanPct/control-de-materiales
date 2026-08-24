@@ -2511,7 +2511,7 @@
       : state.mode==='pedido' ? 'Escanea o introduce el código para añadirlo al pedido…'
       : 'Escanea o introduce el código para añadirlo a la solicitud…';
     const hint = state.mode==='almacen'
-      ? 'Cada código escaneado aquí suma unidades al stock (entrada). Para material desconocido, te pedirá una referencia.'
+      ? 'Cada código escaneado aquí suma unidades al stock (entrada). Si el material no existe, se pedirá una referencia.'
       : state.mode==='pedido'
       ? 'Cada código añade esa cantidad al pedido — esto no descuenta stock, es solo un listado para pedir y mandar por correo.'
       : 'Esto NO descuenta stock todavía — se queda en la solicitud pendiente hasta que se prepare la recogida y se firme.';
@@ -2529,7 +2529,7 @@
           <button class="cam-btn" id="camBtn" ${disabled?'disabled':''}>📷 Cámara</button>
           <button class="btn primary" id="scanSubmitBtn" ${disabled?'disabled':''}>${submitLabel}</button>
         </div>
-        <div class="scan-hint">${hint} · Te pregunto la cantidad justo después de leer el código. Funciona con lector USB/Bluetooth (Enter), cámara del móvil, o escribiendo el código a mano.</div>
+        <div class="scan-hint">${hint} · La cantidad se pide justo después de leer el código. Funciona con lector USB/Bluetooth (Enter), cámara del móvil, o escribiendo el código a mano.</div>
         ${pendingUnknownCode ? `
           <div class="unknown-box">
             <span>Nueva referencia para el código <strong>${esc(pendingUnknownCode.code)}</strong>:</span>
