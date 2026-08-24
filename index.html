@@ -742,12 +742,8 @@
 <script>
 (function(){
 
-  // ---------- Firebase (opcional — para compartir el stock entre varios dispositivos) ----------
-  // 1. Crea un proyecto gratuito en https://console.firebase.google.com
-  // 2. Activa "Firestore Database" (modo producción) dentro del proyecto.
-  // 3. Ve a Configuración del proyecto (⚙) → tus apps → añade una app Web → copia el objeto de configuración.
-  // 4. Pega ese objeto aquí abajo, sustituyendo los valores de ejemplo.
-  // Si lo dejas tal cual (sin rellenar), la app sigue funcionando con guardado local (localStorage).
+  // ---------- Firebase (opcional, para compartir el stock entre dispositivos) ----------
+  // Sin rellenar, la app sigue funcionando con guardado local (localStorage).
   const firebaseConfig = {
     apiKey: "AIzaSyDIsRvCzSJeQ0ftK9DhMl8SAVPBlx9IKEc",
     authDomain: "almacenamiento-datos-40e38.firebaseapp.com",
@@ -768,9 +764,7 @@
   }catch(e){ hasFirebase = false; }
   const FIRESTORE_COLLECTION = 'tecnomat_materiales';
 
-  // config del correo (EmailJS) - lo dejo así para poder mandarme avisos sin montar un servidor
-  // me creo una cuenta gratis en emailjs.com, un "service" (mi gmail p.ej.), una plantilla con
-  // las variables subject/message/to_email, y pego aquí mi public key + los ids de ambos
+  // config de EmailJS (opcional) para avisos por correo sin servidor propio
   const emailjsConfig = {
     publicKey: 'u_V6OyiI7F3r-7nQT',
     serviceId: 'service_aen4ibl',
@@ -785,7 +779,7 @@
   }catch(e){ hasEmailJS = false; }
 
   function sendEmailAlert(subject, message){
-    // si no he configurado emailjs todavía, no intento mandar nada (que no pete la app por esto)
+    // sin EmailJS configurado, no intento mandar nada
     if(!hasEmailJS || !state.settings.emailDestino) return;
     emailjs.send(emailjsConfig.serviceId, emailjsConfig.templateId, {
       subject: subject,
@@ -796,24 +790,19 @@
     });
   }
 
-  // esto es para poder leer PDFs al crear una orden desde archivo — lo dejo cargado
-  // solo si pdf.js se ha podido descargar bien, si no simplemente no ofrezco esa opción
+  // pdf.js para leer PDFs al crear una orden — si no carga, no ofrezco esa opción
   const hasPdfLib = typeof pdfjsLib !== 'undefined';
   if(hasPdfLib){
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
   }
 
-  // ---------- Login (Firebase Authentication) ----------
-  // Si tienes Firebase configurado arriba, la app pide email/contraseña antes de mostrarse.
-  // Crea los usuarios en Firebase → Authentication → Users (uno compartido, o uno por persona).
-  // Si NO tienes Firebase configurado, la app se abre directamente (guardado local, sin login).
+  // ---------- Login (Firebase Authentication, opcional) ----------
   let auth = null;
   if(hasFirebase){
     try{ auth = firebase.auth(); }catch(e){ auth = null; }
   }
 
-  // el de taller no debería poder tocar Almacén, solo pedir material desde Montaje/Proyecto —
-  // esto es una restricción de interfaz (comodidad), la de verdad va en las reglas de Firestore
+  // taller no ve Almacén — es solo de interfaz, la restricción real va en Firestore
   function getUserRole(){
     if(!auth || !auth.currentUser) return 'almacen'; // sin login (o app sin Firebase) = acceso completo
     const email = (auth.currentUser.email || '').toLowerCase();
@@ -902,22 +891,16 @@
 
   const $ = sel => document.querySelector(sel);
   const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2,7);
-  // la forma por defecto de los datos de una orden/proyecto: servido, devuelto, y la
-  // solicitud pendiente de recoger (quién la pide + lo que lleva, antes de firmar)
+  // forma por defecto de los datos de una orden/proyecto
   function emptyGroupData(){ return {servido:[], devuelto:[], pendiente:{requesterName:'', items:[]}}; }
 
-  // esto son SOLO ejemplos para ver cómo se ve la ficha — no son referencias reales de
-  // catálogo de ningún fabricante, por eso el código empieza siempre por "EJEMPLO-".
-  // hay que borrarlos e importar el catálogo real de cada marca en cuanto se pueda
+  // ejemplos de ficha, no referencias reales — de ahí el prefijo "EJEMPLO-"
   const nowStr = () => new Date().toLocaleString('es-ES');
   const slug = s => s.trim().toLowerCase().replace(/[^a-z0-9]+/g,'-');
-  // esto lo necesito porque si un código o un nombre trae comillas, < o & rompe el HTML
-  // que monto a mano y luego los botones dejan de encontrar el artículo (bug que tuve)
+  // escapa comillas/</> para que no rompan el HTML montado a mano
   const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 
-  // no puedo meter el logo como imagen de verdad (eso es de pago en la librería que uso),
-  // así que dejo "TECNOMAT" como texto en la primera fila de cada hoja que exporto —
-  // uso esto en vez de XLSX.utils.json_to_sheet directamente en todas las exportaciones
+  // logo como imagen no es posible (de pago en esta librería) — se usa texto en su lugar
   function jsonToBrandedSheet(rows, fallbackRow){
     const datos = rows.length ? rows : [fallbackRow || {}];
     const ws = XLSX.utils.aoa_to_sheet([['TECNOMAT · Control de materiales'], []]);
@@ -925,8 +908,7 @@
     return ws;
   }
 
-  // el segundo parámetro es opcional — si le paso una función, me sale un botón de
-  // "Deshacer" al lado del aviso, para arreglar al momento si me equivoco al escanear
+  // segundo parámetro opcional: función de deshacer, sale como botón junto al aviso
   function showStatus(msg, undoFn){
     const b = $('#statusBanner');
     b.innerHTML = esc(msg) + (undoFn ? ' <button id="undoBtn" class="btn-return" style="margin-left:8px; padding:3px 9px; font-size:11px;">↺ Deshacer</button>' : '');
@@ -939,11 +921,7 @@
     showStatus._t = setTimeout(()=>{ b.style.display='none'; }, 8000);
   }
 
-  // ---------- Storage ----------
-  // Orden de prioridad: 1) Firestore (si has pegado tu configuración de Firebase arriba —
-  // guardado compartido entre dispositivos), 2) window.storage (por si el entorno donde
-  // se ejecuta ofrece esa API), 3) localStorage del navegador (guardado local, por defecto
-  // si no configuras nada).
+  // ---------- Storage: Firestore > window.storage > localStorage ----------
   const hasCloudStorage = (typeof window.storage !== 'undefined') && (typeof window.storage.get === 'function');
   const LS_PREFIX = 'tecnomat_materiales_';
   (function(){
@@ -1027,7 +1005,7 @@
       state.current.montaje = appState.currentMontajeOrder || null;
       state.current.proyecto = appState.currentProject || null;
     }
-    // Migración: lista plana de Montaje de versiones anteriores -> se convierte en la orden "General"
+    // migración: lista plana antigua -> orden "General"
     if(!groupsMontaje && oldLists && oldLists.montaje && (oldLists.montaje.servido.length || oldLists.montaje.devuelto.length)){
       const migrated = oldLists.montaje;
       state.groups.montaje = [{name:'General', status:'activo'}];
@@ -1036,7 +1014,7 @@
       safeSet('group_montaje_'+slug('General'), migrated);
       if(!state.current.montaje) state.current.montaje = 'General';
     }
-    // Migración: proyectos antiguos con datos guardados bajo su clave anterior "project_<slug>"
+    // migración: proyectos antiguos bajo la clave "project_<slug>"
     for(const g of state.groups.proyecto){
       if(!state.groupData['proyecto::'+g.name]){
         const legacy = await safeGet('project_'+slug(g.name));
@@ -1058,16 +1036,14 @@
       }
     }
     render();
-    // reviso si toca mandar el aviso diario (y el semanal) nada más cargar, y luego cada
-    // 5 min por si la página se queda abierta y llega la hora configurada mientras tanto
+    // revisa avisos diario/semanal al cargar y cada 5 min mientras esté abierta
     maybeRunDailyCheck();
     maybeRunWeeklyCheck();
     setInterval(()=>{ maybeRunDailyCheck(); maybeRunWeeklyCheck(); }, 5 * 60 * 1000);
     setupRealtimeWatchers();
   }
 
-  // ---------- Tiempo real (solo si Firebase está configurado) ----------
-  // esto hace que si otro dispositivo cambia algo, lo vea aquí sin tener que recargar
+  // ---------- Tiempo real (solo con Firebase) ----------
   let unsubscribers = {};
   function watchKey(key, applyFn){
     if(!hasFirebase) return;
@@ -1088,16 +1064,13 @@
     watchKey('notifications', v => { state.notifications = v; });
     watchCurrentGroup();
   }
-  // esta la llamo también cada vez que cambio de orden/proyecto, para escuchar la que toca ahora
+  // se llama también al cambiar de orden/proyecto
   function watchCurrentGroup(){
     if(!hasFirebase) return;
     ['montaje','proyecto'].forEach(kind => {
       const name = state.current[kind];
       if(!name) return;
-      // aquí estaba el fallo: escribía "v" tal cual, sin pasar por emptyGroupData(),
-      // así que en cuanto Firestore mandaba el primer dato (que no tenía 'pendiente'
-      // porque la orden es de antes de esta función) se cargaba encima del que sí
-      // lo tenía bien puesto, y la app petaba al leer target.pendiente.requesterName
+      // fix: pasar por emptyGroupData() para no perder 'pendiente' en datos antiguos
       watchKey('group_'+kind+'_'+slug(name), v => { state.groupData[kind+'::'+name] = Object.assign(emptyGroupData(), v); });
     });
   }
@@ -1105,8 +1078,7 @@
   function saveAppState(){ safeSet('app_state', {mode:state.mode, currentMontajeOrder:state.current.montaje, currentProject:state.current.proyecto}); }
   function saveCatalog(){ safeSet('catalog', state.catalog); }
   function saveMovements(){
-    // en vez de tirar sin más lo que sobra de 500, lo resumo por mes y lo guardo aparte
-    // — así no pierdo el dato gordo (cuánto entró/salió), aunque no conserve cada línea
+    // lo que sobra de 500 se resume por mes en vez de borrarse sin más
     if(state.movements.length > 600){
       const overflow = state.movements.slice(500);
       state.movements = state.movements.slice(0,500);
@@ -1163,7 +1135,7 @@
   function saveSettings(){ safeSet('settings', state.settings); }
   function saveAlerts(){ safeSet('alerts_state', state.alerts); }
 
-  // ---------- Target resolution (Montaje / Proyecto only — Almacén is the stock view) ----------
+  // ---------- Target resolution (Montaje / Proyecto) ----------
   function currentTarget(){
     if(state.mode === 'montaje' || state.mode === 'proyecto'){
       const name = state.current[state.mode];
@@ -1182,14 +1154,11 @@
     return 'Almacén';
   }
 
-  // ---------- Catalog / stock lookup ----------
-  // esta la dejo con el comportamiento de "primera coincidencia", para los sitios donde
-  // no me preocupa que un código tenga varias referencias (autocompletar, alta manual...)
+  // ---------- Catalog / stock lookup — primera coincidencia por código ----------
   function findInCatalog(code){
     return state.catalog.find(m => m.code.toLowerCase() === code.toLowerCase());
   }
-  // esta es la que uso en el escaneo, porque ahí sí puede haber más de una referencia
-  // compartiendo el mismo código de barras y necesito verlas todas para preguntar cuál es
+  // busca todas las coincidencias, para el escaneo con varias referencias
   function findAllByCode(code){
     return state.catalog.filter(m => m.code.toLowerCase() === code.toLowerCase());
   }
@@ -1201,20 +1170,15 @@
   }
 
   // ---------- Stock ledger ----------
-  // ahora recibo el item directo (ya resuelto por quien me llama), porque con varias
-  // referencias por código ya no me vale con buscar "el" item de ese código
   function adjustStock(item, qty, type, origin){
     const delta = (type === 'entrada' ? qty : -qty);
-    // actualizo ya mismo en local para que la pantalla responda al instante,
-    // sin esperar a que vuelva la confirmación del servidor
+    // actualiza en local al instante, sin esperar confirmación del servidor
     item.qty += delta;
     state.movements.unshift({id:uid(), code:item.code, desc:item.desc, qty, type, origin, ts:nowStr(), tsMs:Date.now()});
     saveMovements();
 
     if(hasFirebase){
-      // aquí uso una transacción en vez de guardar el array tal cual — así, si dos
-      // dispositivos tocan el mismo material casi a la vez, no se pisan el cambio
-      // (sin esto, "el último que guarda gana" y se podría perder un ajuste entero)
+      // transacción para que dos dispositivos no se pisen un cambio a la vez
       const ref = db.collection(FIRESTORE_COLLECTION).doc('catalog');
       db.runTransaction(async tx => {
         const doc = await tx.get(ref);
@@ -1239,9 +1203,7 @@
     render();
   }
 
-  // esto es para cuando un artículo ya existía antes de tener categorías (por ejemplo
-  // los que llegaron por un Excel importado) — así se le puede poner o cambiar la
-  // categoría a mano en cualquier momento, sin tener que volver a crearlo
+  // pone o cambia la categoría a mano, útil para artículos importados sin ella
   function changeCategoria(id){
     const item = state.catalog.find(m => m.id === id);
     if(!item) return;
@@ -1266,7 +1228,7 @@
       ? '¿Eliminar "'+item.code+' — '+item.desc+'" del stock? Todavía tiene '+item.qty+' unidades registradas. Esta acción no se puede deshacer.'
       : '¿Eliminar "'+item.code+' — '+item.desc+'" del stock? Esta acción no se puede deshacer.';
     if(!confirm(msg)) return;
-    // antes de borrarla del todo dejo constancia en el historial de que existió y con cuántas unidades se quedó
+    // antes de borrarla, queda constancia en el historial
     state.movements.unshift({id:uid(), code:item.code, desc:item.desc, qty:item.qty, type:'eliminado', origin:'Almacén (referencia eliminada)', ts:nowStr(), tsMs:Date.now()});
     saveMovements();
     state.catalog = state.catalog.filter(m => m.id !== id);
@@ -1282,8 +1244,7 @@
     if(!codigo || !desc || !matricula || !expira){ showStatus('Rellena código, referencia, matrícula y fecha de devolución.'); return; }
     state.bobinas.push({id:uid(), codigo, desc, matricula, expira, createdAt:nowStr()});
     saveBobinas();
-    // si el código no estaba dado de alta en el stock, aprovecho y lo creo con 0 unidades
-    // (la bobina en sí no suma al stock contable, solo comparte el mismo código/descripción)
+    // si el código no existía en stock, se crea con 0 unidades (la bobina no suma stock)
     if(!findInCatalog(codigo)){
       state.catalog.push({id:uid(), code:codigo, desc, qty:0, location:''});
       saveCatalog();
@@ -1298,7 +1259,7 @@
     render();
   }
 
-  // ---------- Pedido de materiales (listado que mando por correo, no toca el stock) ----------
+  // ---------- Pedido de materiales (por correo, no toca el stock) ----------
   function addToPedido(item, qty){
     const existente = state.pedidoItems.find(it => it.itemId ? it.itemId===item.id : it.code.toLowerCase()===item.code.toLowerCase());
     if(existente){
@@ -1341,12 +1302,8 @@
     render();
   }
 
-  // ---------- Entrega con firma (el material no se descuenta hasta que se firma) ----------
-  // prepara la recogida de la solicitud pendiente de la orden/proyecto activo — hasta
-  // que no se firme, no se toca el stock ni se mueve nada a "servido"
-  // guarda los cambios de la Hoja de pedido (cantidad/pedido/reserva ya se han ido
-  // actualizando en memoria al editar cada campo) y avisa a almacén por correo de que
-  // hay un pedido nuevo o modificado, con el detalle línea a línea
+  // ---------- Entrega con firma — el stock no se descuenta hasta firmar ----------
+  // guarda la Hoja de pedido y avisa a almacén por correo con el detalle
   function saveHojaPedido(){
     const target = currentTarget();
     if(!target) return;
@@ -1361,8 +1318,7 @@
       msg += '\nPedido por: '+(target.pendiente.requesterName || 'sin especificar');
       sendEmailAlert('Nuevo pedido de materiales — '+ot, msg);
 
-      // este es el aviso que ve almacén dentro de la propia app (no solo el correo) —
-      // al pulsarlo, se les lleva directamente a esta orden/proyecto
+      // aviso dentro de la app (no solo correo); al pulsarlo, lleva a la orden/proyecto
       state.notifications.unshift({
         id: uid(), groupKind: state.mode, groupName: ot,
         requesterName: target.pendiente.requesterName || 'sin especificar',
@@ -1378,8 +1334,7 @@
   function prepareDelivery(){
     const target = currentTarget();
     if(!target || !target.pendiente.items.length){ showStatus('La solicitud está vacía, añade algún material primero.'); return; }
-    // compruebo que todavía hay stock real de cada línea — puede haber pasado tiempo
-    // desde que se montó la solicitud y algo haberse agotado mientras tanto
+    // comprueba stock real por si algo se agotó desde que se montó la solicitud
     const faltantes = [];
     target.pendiente.items.forEach(it => {
       const item = it.itemId ? state.catalog.find(m => m.id === it.itemId) : findInCatalog(it.code);
@@ -1390,8 +1345,7 @@
       showStatus('No se puede preparar la recogida, falta stock de: '+faltantes.join(', ')+'. Ajusta las cantidades o repón stock primero.');
       return;
     }
-    // en cuanto pasa la comprobación de stock lo marco como "reservado" — esto es lo
-    // que en el papel de Tecnomat es la columna RESERVA, antes de que venga a firmar
+    // tras la comprobación de stock, queda marcado 'reservado' (columna RESERVA del papel)
     target.pendiente.items.forEach(it => { it.reservado = true; });
     persistCurrentTarget();
     state.pendingDelivery = {
@@ -1417,14 +1371,13 @@
     render();
   }
 
-  // esto es lo que de verdad descuenta el stock y mueve las líneas a "servido" — hasta
-  // este momento no se ha tocado nada, todo estaba solo en la solicitud pendiente
+  // esto descuenta el stock de verdad y mueve las líneas a "servido"
   function confirmDelivery(signatureDataUrl){
     if(!state.pendingDelivery) return;
     const key = state.pendingDelivery.groupKind+'::'+state.pendingDelivery.groupName;
     const target = state.groupData[key];
     if(!target){ showStatus('La orden/proyecto de esta solicitud ya no existe.'); state.pendingDelivery = null; resetSignatureCanvas(); render(); return; }
-    // reviso el stock una última vez, por si ha cambiado justo mientras se firmaba
+    // revisa el stock una última vez, por si cambió justo mientras se firmaba
     const faltantes = [];
     state.pendingDelivery.items.forEach(it => {
       const item = it.itemId ? state.catalog.find(m => m.id === it.itemId) : findInCatalog(it.code);
@@ -1441,8 +1394,7 @@
     state.pendingDelivery.items.forEach(it => {
       const item = it.itemId ? state.catalog.find(m => m.id === it.itemId) : findInCatalog(it.code);
       if(!item) return;
-      // aquí sí que entra de verdad en el listado de "servido" de la orden/proyecto,
-      // ahora que ya está firmada la recogida
+      // ya firmada la recogida, entra al listado "servido" de verdad
       addEntryToTarget(target, item, it.qty);
       adjustStock(item, it.qty, 'salida', origen);
     });
@@ -1475,19 +1427,19 @@
     return Math.round((objetivo - hoy) / 86400000);
   }
 
-  // las bobinas que están dentro del margen de aviso que yo haya configurado (o ya vencidas)
+  // bobinas dentro del margen de aviso configurado, o ya vencidas
   function getExpiringBobinas(){
     return state.bobinas.filter(b => daysUntil(b.expira) <= state.settings.bobinaAvisoDias);
   }
 
-  // el listado de "por debajo de X unidades" que uso tanto para el banner como para el correo
+  // listado de stock bajo, para el banner y el correo
   function getLowStockItems(){
     return state.catalog.filter(m => m.qty <= state.settings.stockBajoUmbral);
   }
 
   function todayStr(){ return new Date().toISOString().slice(0,10); }
 
-  // para no repetir este ternario en cada sitio donde muestro el tipo de movimiento
+  // evita repetir este ternario en cada sitio donde se muestra el tipo de movimiento
   function movTypeLabel(type){
     if(type==='entrada') return 'Entrada';
     if(type==='salida') return 'Salida';
@@ -1495,9 +1447,7 @@
     return type;
   }
 
-  // esto es el aviso de "fin de día": lo compruebo al cargar la página y cada 5 min mientras
-  // esté abierta, pero solo actúa de verdad una vez que ha pasado la hora que configuré y
-  // solo manda el correo una vez por día (por eso guardo la fecha del último aviso)
+  // aviso diario: solo actúa tras la hora configurada, una vez al día
   function maybeRunDailyCheck(){
     const ahora = new Date();
     if(ahora.getHours() < state.settings.avisoHora) return;
@@ -1510,13 +1460,13 @@
       let msg = 'Materiales con '+state.settings.stockBajoUmbral+' unidades o menos:\n\n';
       bajoStock.forEach(m => { msg += '- '+m.code+' · '+m.desc+' · '+m.qty+' uds · ubicación: '+(m.location||'sin ubicar')+'\n'; });
       if(bobinasExp.length){
-        // si ya van dentro de este listado no hace falta mandar otro correo aparte solo por ellas
+        // si ya están en este listado, no se manda otro correo aparte
         msg += '\nBobinas a punto de expirar:\n\n';
         bobinasExp.forEach(b => { msg += '- '+(b.codigo?b.codigo+' · ':'')+b.desc+' · matrícula '+b.matricula+' · devolver antes del '+b.expira+'\n'; });
       }
       sendEmailAlert('Aviso de stock bajo' + (bobinasExp.length ? ' y bobinas por expirar' : ''), msg);
     }else if(bobinasExp.length){
-      // no hay stock bajo pero sí bobinas a punto de expirar, así que mando el aviso solo de eso
+      // sin stock bajo pero con bobinas por vencer, aviso solo de eso
       let msg = 'Bobinas a punto de expirar:\n\n';
       bobinasExp.forEach(b => { msg += '- '+(b.codigo?b.codigo+' · ':'')+b.desc+' · matrícula '+b.matricula+' · devolver antes del '+b.expira+'\n'; });
       sendEmailAlert('Aviso: bobinas a punto de expirar', msg);
@@ -1526,8 +1476,7 @@
     saveAlerts();
   }
 
-  // los materiales que más se han movido (entradas+salidas juntas) en los últimos X días —
-  // la uso tanto para el resumen semanal como para el panel de actividad en Almacén
+  // materiales más movidos en los últimos X días (resumen semanal y panel Actividad)
   function getTopMovedMaterials(days){
     const cutoff = Date.now() - days*86400000;
     const totales = {};
@@ -1543,8 +1492,7 @@
       .map(([key,total]) => { const [code,desc] = key.split('|'); return {code, desc, total}; });
   }
 
-  // barritas hechas con CSS, nada de librería de gráficas — con esto me sobra para ver
-  // de un vistazo qué se mueve más, no hace falta más aparato
+  // barritas con CSS, sin librería de gráficas
   function renderActivityBars(){
     const top = getTopMovedMaterials(30);
     if(!top.length) return '<div style="color:var(--text-faint); font-size:12.5px;">Todavía no hay movimientos suficientes.</div>';
@@ -1562,8 +1510,7 @@
     `).join('');
   }
 
-  // el resumen semanal — igual que el diario, solo actúa una vez pasada la hora configurada,
-  // pero aquí controlo "una vez por semana" mirando cuánto ha pasado desde la última vez
+  // resumen semanal — una vez por semana, igual que el diario pero por fecha
   function maybeRunWeeklyCheck(){
     const ahora = new Date();
     if(ahora.getHours() < state.settings.avisoHora) return;
@@ -1587,7 +1534,7 @@
 
   // ---------- Add / Return ----------
   function addEntryToTarget(target, item, qty){
-    // si la entrada es de una versión vieja sin itemId, la reconozco por código como antes
+    // entradas viejas sin itemId se reconocen por código
     const existing = target.servido.find(e => e.itemId ? e.itemId===item.id : e.code.toLowerCase()===item.code.toLowerCase());
     if(existing){
       existing.qty += qty;
@@ -1599,18 +1546,15 @@
     }
   }
 
-  // esto lo separo para no repetir el prompt varias veces — pregunto la cantidad justo
-  // cuando ya sé qué referencia es (si cancela, devuelvo null y no hago nada)
+  // pregunta la cantidad una vez resuelta la referencia; si cancela, devuelve null
   function askQty(label){
     const val = prompt('¿Cuántas unidades de "'+label+'"?', '1');
     if(val === null) return null;
     return Math.max(1, parseInt(val,10) || 1);
   }
 
-  // esta es la que hace la acción de verdad una vez que ya sé qué referencia concreta es
-  // (la uso tanto si solo había una coincidencia como si venimos de elegirla en el selector)
-  // añado (o sumo) una línea a la solicitud pendiente de una orden/proyecto — esto
-  // todavía NO toca el stock, eso solo pasa al firmar la recogida
+  // acción final ya con la referencia resuelta (única o elegida en el selector)
+  // añade/suma una línea a la solicitud pendiente — no toca el stock todavía
   function addToPendiente(target, item, qty){
     const existente = target.pendiente.items.find(it => it.itemId === item.id);
     if(existente){ existente.qty += qty; }
@@ -1644,8 +1588,7 @@
       });
       return;
     }
-    // montaje / proyecto — esto ya NO sirve al instante: se queda en la solicitud
-    // pendiente de esa orden/proyecto, y el stock no se toca hasta que se firme la recogida
+    // montaje/proyecto: ya no sirve al instante, queda en la solicitud pendiente
     if(item.qty <= 0){
       showStatus('No se puede solicitar "'+label+'" — no queda stock (0 unidades). Dalo de alta en Almacén primero.');
       return;
@@ -1680,7 +1623,7 @@
     if(!code) return;
     pendingCodeChoice = null;
 
-    // en Montaje/Proyecto compruebo primero que haya dónde registrar, antes de nada más
+    // en Montaje/Proyecto, primero comprueba que haya dónde registrar
     if(state.mode === 'montaje' || state.mode === 'proyecto'){
       const target = currentTarget();
       if(!target){ showStatus('Selecciona '+(state.mode==='montaje'?'una orden de montaje':'un proyecto')+' antes de escanear.'); return; }
@@ -1715,7 +1658,7 @@
       return;
     }
 
-    // dos o más referencias comparten este código de barras — antes de tocar nada pregunto cuál es
+    // varias referencias comparten este código — se pregunta cuál es
     pendingUnknownCode = null;
     pendingCodeChoice = {code, matches: matches.map(m => m.id)};
     renderScannerZone();
@@ -1752,7 +1695,7 @@
       target.servido = target.servido.filter(e => e.id !== id);
     }
     persistCurrentTarget();
-    // si la entrada tiene itemId uso ese (es la referencia exacta); si no, caigo al código como antes
+    // usa itemId si lo hay (referencia exacta), si no cae al código
     const item = (entry.itemId && state.catalog.find(m => m.id === entry.itemId)) || findInCatalog(entry.code);
     if(item) adjustStock(item, q, 'entrada', originLabel()+' (devolución)');
     render();
@@ -1775,8 +1718,7 @@
     referencia = (referencia || '').trim();
     qty = Math.max(1, parseInt(qty,10) || 0);
     if(!code || !articulo || !qty){ showStatus('Rellena código, artículo y una cantidad válida.'); return; }
-    // aquí me quedo con la primera coincidencia — si quiero una referencia distinta bajo
-    // el mismo código, para eso está el botón "+ Otra referencia" en la fila del stock
+    // primera coincidencia; para otra referencia con el mismo código, "+ Otra referencia"
     let item = findInCatalog(code);
     if(!item) item = createCatalogItem(code, articulo, location, categoria, referencia);
     adjustStock(item, qty, 'entrada', 'Almacén (manual)');
@@ -1976,8 +1918,7 @@
   function exportList(target, filename, ot){
     const wb = XLSX.utils.book_new();
 
-    // esta es la hoja principal, calcada del papel de "OBSERVACIONES MATERIALES":
-    // OT, fecha, artículo, cantidad pedida, si está reservada, y cuándo se recibió de verdad
+    // hoja calcada del papel "OBSERVACIONES MATERIALES" (OT, fecha, artículo...)
     const pedidoRows = [
       ...target.pendiente.items.map(it => ({
         OT: ot||'', Fecha: nowStr(), Artículo: it.code+' — '+it.desc,
@@ -1991,7 +1932,7 @@
     const wsPedido = jsonToBrandedSheet(pedidoRows, {OT:ot||'', Fecha:'', Artículo:'', 'Cantidad pedida':'', Pedido:'', Reserva:'', Recibido:''});
     XLSX.utils.book_append_sheet(wb, wsPedido, 'Pedido de materiales');
 
-    // y estas dos las dejo también, con más detalle técnico por si hace falta
+    // estas dos quedan también, con más detalle técnico por si hace falta
     const servidoRows = target.servido.map(e => ({Código:e.code, Artículo:e.desc, Cantidad:e.qty, Entregado:e.firstTs||e.ts, Actualizado:e.ts}));
     const devueltoRows = target.devuelto.map(e => ({Código:e.code, Artículo:e.desc, Cantidad:e.qty, Entregado:e.deliveredAt||'', Devuelto:e.ts}));
     const wsS = jsonToBrandedSheet(servidoRows, {Código:'',Artículo:'',Cantidad:'',Entregado:'',Actualizado:''});
@@ -2011,9 +1952,7 @@
         let added = 0, withStock = 0;
         rows.forEach(row => {
           const keys = Object.keys(row);
-          // ojo: antes "descripción" y "referencia" competían por el mismo campo y en
-          // vuestro Excel real (CODIGO, CANTIDAD, UBICACIÓN, ARTICULO, REFERENCIA) se
-          // perdía la columna ARTICULO — ahora van cada una a su sitio, sin pisarse
+          // Artículo y Referencia son campos separados, ya no se pisan entre sí
           const codeKey = keys.find(k => /^(c[oó]digo|code|codigo|sku)$/i.test(k.trim()));
           const descKey = keys.find(k => /^(descripci[oó]n|desc|art[ií]culo|material|nombre)$/i.test(k.trim()));
           const refKey = keys.find(k => /^(referencia|ref)$/i.test(k.trim()));
@@ -2050,10 +1989,7 @@
     reader.readAsArrayBuffer(file);
   }
 
-  // esto es la versión "de verdad, sustituye todo" — el stock queda tal cual el Excel:
-  // las cantidades se ajustan exactamente a lo que ponga el archivo (no se suman), y
-  // cualquier referencia que no aparezca en él se borra del stock, con su movimiento
-  // de "eliminado" en el historial para que quede constancia de por qué desapareció
+  // sobrescribe todo el stock: cantidades exactas del Excel, borra lo que no esté
   function overwriteCatalogFromFile(file){
     const reader = new FileReader();
     reader.onload = function(ev){
@@ -2102,7 +2038,7 @@
             if(f.referencia) item.referencia = f.referencia;
             actualizadas++;
           }
-          // la cantidad la dejo EXACTAMENTE como diga el archivo, no la sumo a lo que hubiera
+          // cantidad exacta del archivo, no se suma a lo que hubiera
           const qtyObjetivo = !isNaN(f.qty) ? Math.max(0, f.qty) : item.qty;
           const delta = qtyObjetivo - item.qty;
           if(delta !== 0) adjustStock(item, Math.abs(delta), delta>0?'entrada':'salida', 'Sobrescritura de stock (Excel)');
@@ -2124,9 +2060,7 @@
     reader.readAsArrayBuffer(file);
   }
 
-  // ---------- Crear orden desde archivo (Excel/CSV fiable, PDF a mejor esfuerzo) ----------
-  // saco filas {code, desc, qty} de un Excel/CSV reutilizando la misma detección de columnas
-  // que uso para importar el catálogo, pero aquí la cantidad es obligatoria (si no la trae, pongo 1)
+  // ---------- Crear orden desde archivo (Excel/CSV, PDF a mejor esfuerzo) ----------
   function parseExcelOrderFile(file){
     return new Promise((resolve, reject)=>{
       const reader = new FileReader();
@@ -2140,8 +2074,7 @@
             const codeKey = keys.find(k => /^(c[oó]digo|code|codigo|sku)$/i.test(k.trim()));
             const descKey = keys.find(k => /^(descripci[oó]n|desc|art[ií]culo|material|nombre)$/i.test(k.trim()));
             const refKey = keys.find(k => /^(referencia|ref)$/i.test(k.trim()));
-            // "pedido" es como Tecnomat llama a la cantidad solicitada en el papel de
-            // materiales, lo trato igual que "cantidad"
+            // "pedido" = cantidad solicitada en el papel de Tecnomat
             const qtyKey = keys.find(k => /^(cantidad|unidades|uds|qty|pedido)$/i.test(k.trim()));
             const code = codeKey ? String(row[codeKey]).trim() : (refKey ? String(row[refKey]).trim() : '');
             const desc = descKey ? String(row[descKey]).trim() : (!codeKey && !refKey ? String(row[keys[0]]).trim() : '');
@@ -2156,9 +2089,7 @@
     });
   }
 
-  // esto es "mejor esfuerzo" de verdad — un PDF no tiene columnas, así que intento sacar
-  // de cada línea de texto algo con pinta de "referencia ... cantidad al final". Funciona
-  // razonablemente bien con listados sencillos, pero con PDFs muy maquetados puede fallar
+  // "mejor esfuerzo": sin columnas reales, busca "referencia ... cantidad" por línea
   async function parsePdfOrderFile(file){
     if(!hasPdfLib){
       showStatus('No se pudo cargar el lector de PDF. Prueba subiendo un Excel/CSV en su lugar.');
@@ -2182,8 +2113,7 @@
     return rows;
   }
 
-  // aquí ya tengo las filas leídas (venga de Excel o de PDF) y las convierto en líneas
-  // de la orden/proyecto actual, buscando cada una en el stock por código o por referencia
+  // convierte filas leídas en líneas de la orden, buscando en stock
   let pendingOrderPlan = null; // {plan:[...], targetKey} — el archivo ya leído, esperando que confirme antes de tocar nada
 
   async function processOrderFile(file){
@@ -2201,8 +2131,7 @@
     }
     if(!rows.length){ showStatus('No he podido sacar ninguna línea de ese archivo.'); return; }
 
-    // aquí solo miro contra el stock, no toco nada todavía — quiero que primero lo veas
-    // y confirmes, por si el archivo se ha leído mal (sobre todo con el PDF)
+    // solo miro contra el stock, no toco nada hasta que confirmes
     const plan = rows.map(r => {
       let item = r.code ? findInCatalog(r.code) : null;
       if(!item && r.code) item = state.catalog.find(m => m.referencia && m.referencia.toLowerCase() === r.code.toLowerCase());
@@ -2235,8 +2164,7 @@
       }else{
         const item = state.catalog.find(m => m.id === p.itemId);
         if(!item) return;
-        // pido la cantidad solicitada de verdad — si ahora mismo no hay stock suficiente,
-        // eso se comprueba (y se avisa) al preparar la recogida, no aquí
+        // se pide la cantidad real; el stock se comprueba al preparar la recogida
         addToPendiente(target, item, p.requested);
         añadidas++;
       }
@@ -2292,8 +2220,7 @@
     };
   }
 
-  // ajusto el canvas a la resolución real de la pantalla, si no la firma sale borrosa
-  // o desplazada en móviles con densidad de píxeles alta
+  // ajusta el canvas a la resolución real, si no la firma sale borrosa en móvil
   function setupSignatureCanvas(){
     const canvas = $('#signatureCanvas');
     if(!canvas || canvas.dataset.ready) return; // solo lo preparo una vez por apertura
@@ -2342,8 +2269,7 @@
     sigHasStrokes = false;
   }
 
-  // al cerrar la pantalla (cancelar o confirmar) marco el canvas como "no preparado" para
-  // que la próxima vez que se abra vuelva a calcular bien el tamaño desde cero
+  // al cerrar, el canvas queda "no preparado" para recalcular la próxima vez
   function resetSignatureCanvas(){
     const canvas = $('#signatureCanvas');
     if(canvas) delete canvas.dataset.ready;
@@ -2352,8 +2278,7 @@
   }
 
   let camStream = null;
-  // le paso una función que hacer con el código leído, así uso esto mismo tanto para el
-  // escáner principal como para el campo de código de las bobinas
+  // recibe una función con el código leído — sirve para el escáner y para bobinas
   async function openCamera(onDetected){
     if(!('BarcodeDetector' in window)){
       showStatus('Tu navegador no soporta escaneo por cámara. Usa un lector USB/Bluetooth o introduce el código manualmente.');
@@ -2407,7 +2332,7 @@
     renderSignatureOverlay();
   }
 
-  // el buscador de arriba de todo — funciona igual estés en Montaje, Almacén, Proyecto o Pedido
+  // buscador de arriba, funciona en cualquier sección
   function renderGlobalSearch(){
     const zone = $('#globalSearchZone');
     if(!zone) return;
@@ -2431,7 +2356,7 @@
     const term = globalSearchTerm.trim().toLowerCase();
     if(!term){ box.innerHTML = ''; return; }
     const matches = state.catalog.filter(m =>
-      m.code.toLowerCase().includes(term) || m.desc.toLowerCase().includes(term)
+      m.code.toLowerCase().includes(term) || m.desc.toLowerCase().includes(term) || (m.referencia && m.referencia.toLowerCase().includes(term))
     );
     if(!matches.length){
       box.innerHTML = '<div style="padding:10px 4px; color:var(--text-faint); font-size:12.5px;">Sin coincidencias en el stock.</div>';
@@ -2451,7 +2376,7 @@
     `).join('') + (matches.length>15 ? `<div style="padding:6px 4px; color:var(--text-faint); font-size:11.5px;">+${matches.length-15} más… afina la búsqueda.</div>` : '');
   }
 
-  // el aviso que quiero que salte cada vez que entro en cualquier apartado, si hay algo pendiente
+  // aviso que salta en cualquier apartado si hay algo pendiente
   function renderAlertBanner(){
     const el = $('#alertBanner');
     if(!el) return;
@@ -2469,8 +2394,7 @@
     el.innerHTML = '⚠ Aviso: ' + partes.join(' · ') + '. Revísalo en Almacén.';
   }
 
-  // el aviso de "hay un pedido nuevo" — cada línea se puede pulsar y te lleva directo
-  // a esa orden/proyecto, en la pestaña de la Hoja de pedido
+  // aviso de "pedido nuevo" — pulsar una línea lleva a la Hoja de pedido de esa orden
   function renderPedidoNotifBanner(){
     const el = $('#pedidoNotifBanner');
     if(!el) return;
@@ -2577,8 +2501,7 @@
     const currentGroup = currentName ? findGroup(groupKind, currentName) : null;
     const groupFinalizado = !!(currentGroup && currentGroup.status==='finalizado');
     const target = groupKind ? currentTarget() : null;
-    // en Montaje/Proyecto, sin "quién lo pide" no dejo ni escribir en el escáner —
-    // así no hay forma de que parezca que el botón "no hace nada" sin más explicación
+    // sin "quién lo pide" no se puede escribir en el escáner, para que no parezca roto
     const faltaSolicitante = !!(groupKind && target && !target.pendiente.requesterName);
     const disabled = (groupKind && !currentName) || groupFinalizado || faltaSolicitante;
     const placeholder = (groupKind && !currentName) ? 'Selecciona '+(groupKind==='montaje'?'una orden de montaje/venta':'un proyecto')+' para escanear…'
@@ -2637,8 +2560,7 @@
     `;
     const requesterInput = $('#requesterNameInput');
     if(requesterInput){
-      // en cuanto escribo algo, quito el bloqueo del escáner al momento — no hace
-      // falta salir del campo para que se note que ya se puede escanear
+      // al escribir algo, el escáner se desbloquea al momento
       requesterInput.addEventListener('input', () => {
         const tieneNombre = requesterInput.value.trim().length > 0;
         target.pendiente.requesterName = requesterInput.value.trim(); // en memoria ya, para que el escaneo lo vea al instante
@@ -2705,7 +2627,7 @@
     const el = $('#mainList');
     const term = catalogSearchTerm.trim().toLowerCase();
     const items = state.catalog
-      .filter(m => !term || m.code.toLowerCase().includes(term) || m.desc.toLowerCase().includes(term))
+      .filter(m => !term || m.code.toLowerCase().includes(term) || m.desc.toLowerCase().includes(term) || (m.referencia && m.referencia.toLowerCase().includes(term)))
       .slice()
       .sort((a,b)=>a.code.localeCompare(b.code));
 
@@ -2814,7 +2736,7 @@
     });
     el.querySelectorAll('[data-dup-btn]').forEach(btn=>{
       btn.addEventListener('click', ()=>{
-        // reutilizo el mismo formulario de "referencia nueva" que uso cuando el código no existía
+        // reutilizo el formulario de "referencia nueva"
         pendingCodeChoice = null;
         pendingUnknownCode = {code: btn.dataset.dupBtn};
         showStatus('Rellena la nueva referencia para el código "'+btn.dataset.dupBtn+'" justo arriba, junto al escáner.');
@@ -2833,7 +2755,7 @@
     });
     const bCodigoInput = $('#bCodigo');
     if(bCodigoInput){
-      // si el código ya existe en el stock, me ahorro escribir la descripción a mano
+      // si el código ya existe en el stock, se autocompleta la descripción
       bCodigoInput.addEventListener('change', ()=>{
         const match = findInCatalog(bCodigoInput.value.trim());
         if(match && !$('#bDesc').value.trim()) $('#bDesc').value = match.desc;
@@ -2864,7 +2786,7 @@
     });
   }
 
-  // la tengo aparte porque la uso solo dentro de renderStockMain, para no meter todo el html ahí mezclado
+  // aparte para no mezclar todo el html de renderStockMain
   function renderBobinasPanelHTML(){
     const bobinasOrdenadas = state.bobinas.slice().sort((a,b)=> a.expira.localeCompare(b.expira));
     const filas = bobinasOrdenadas.map(b => {
@@ -2912,9 +2834,7 @@
     `;
   }
 
-  // esta sección filtra el propio stock por la categoría "Manguera o cable" — no es un
-  // catálogo aparte, es una vista rápida de lo que ya tengo dado de alta de este tipo,
-  // más un alta rápida para cuando quiero registrar uno nuevo sin salir de aquí
+  // filtra el propio stock por categoría "Manguera o cable", más alta rápida
   function renderCablesPanelHTML(){
     return `
       <div class="panel" style="margin-top:14px;">
@@ -2939,7 +2859,7 @@
     if(!box) return;
     const term = cablesSearchTerm.trim().toLowerCase();
     const cables = state.catalog.filter(m => m.categoria === 'Manguera o cable');
-    const matches = term ? cables.filter(m => m.code.toLowerCase().includes(term) || m.desc.toLowerCase().includes(term)) : cables;
+    const matches = term ? cables.filter(m => m.code.toLowerCase().includes(term) || m.desc.toLowerCase().includes(term) || (m.referencia && m.referencia.toLowerCase().includes(term))) : cables;
     if(!matches.length){
       box.innerHTML = '<div style="color:var(--text-faint); font-size:12px; padding:6px 0;">'+(cables.length?'Sin coincidencias.':'Todavía no hay cables ni mangueras dados de alta en el stock.')+'</div>';
       return;
@@ -3030,9 +2950,7 @@
 
     let bodyHtml;
     if(listView === 'hoja'){
-      // esta es la misma idea que llevaba el Excel (OT, Fecha, Artículo, Cantidad, Pedido,
-      // Reserva, Recibido) pero editable de verdad aquí dentro — las líneas pendientes se
-      // pueden tocar (cantidad, pedido, reserva), las ya servidas quedan fijas como registro
+      // misma tabla que el Excel, pero editable — lo servido queda fijo como registro
       const ot = state.current[state.mode] || '';
       const filasPendientes = target.pendiente.items.map(it => ({
         id: it.id, esPendiente: true, fecha: nowStr(), articulo: it.code+' — '+it.desc,
@@ -3164,8 +3082,7 @@
       });
     });
 
-    // edición de la Hoja de pedido — cantidad, pedido y reserva se guardan al momento
-    // en memoria (y quedan de verdad guardados al pulsar "Guardar y avisar a almacén")
+    // se guardan en memoria al momento, de verdad al pulsar Guardar
     el.querySelectorAll('[data-hoja-campo]').forEach(inp=>{
       inp.addEventListener('change', ()=>{
         const it = target.pendiente.items.find(x => x.id === inp.dataset.hojaId);
@@ -3175,8 +3092,7 @@
     });
     el.querySelectorAll('[data-hoja-recibido]').forEach(cb=>{
       cb.addEventListener('change', ()=>{
-        // no lo dejo marcado directamente — eso solo pasa de verdad cuando se firma
-        // la recogida, así que esta casilla lo que hace es abrir esa pantalla
+        // no se marca directo: esta casilla abre la pantalla de firma
         cb.checked = false;
         prepareDelivery();
       });
@@ -3461,7 +3377,7 @@
     const term = catalogSearchTerm.trim().toLowerCase();
     if(!term){ box.innerHTML = ''; return; }
     const matches = state.catalog.filter(m =>
-      m.code.toLowerCase().includes(term) || m.desc.toLowerCase().includes(term)
+      m.code.toLowerCase().includes(term) || m.desc.toLowerCase().includes(term) || (m.referencia && m.referencia.toLowerCase().includes(term))
     );
     if(!matches.length){
       box.innerHTML = '<div style="color:var(--text-faint); font-size:12.5px;">Sin coincidencias.</div>';
@@ -3477,8 +3393,7 @@
 
 })();
 
-// esto lo registro fuera del bloque de la app — si falla (p.ej. porque no hay https),
-// no quiero que se lleve por delante el resto de la aplicación
+// service worker registrado fuera del bloque de la app, para que un fallo no la tumbe
 if('serviceWorker' in navigator){
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js').then(reg => {
@@ -3490,9 +3405,7 @@ if('serviceWorker' in navigator){
         const nuevo = reg.installing;
         if(!nuevo) return;
         nuevo.addEventListener('statechange', () => {
-          // "installed" + ya había un controller = hay una versión nueva lista,
-          // pero todavía no activa (si no hubiera controller, sería la primera
-          // instalación de siempre, no una actualización, y no hace falta avisar)
+          // versión nueva lista, aviso de actualización
           if(nuevo.state === 'installed' && navigator.serviceWorker.controller){
             showSwUpdateBanner(reg);
           }
@@ -3500,8 +3413,7 @@ if('serviceWorker' in navigator){
       });
     }).catch(() => {});
 
-    // cuando el service worker nuevo pasa a mandar de verdad, recargo la página
-    // una sola vez para que se vea ya la versión actualizada
+    // al activarse el service worker nuevo, recargo la página una vez
     let recargando = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       if(recargando) return;
