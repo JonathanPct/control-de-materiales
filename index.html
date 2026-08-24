@@ -845,6 +845,8 @@
   let catalogSearchTerm = '';
   let globalSearchTerm = ''; // el buscador de arriba de todo, funciona en cualquier sección
   let selectedStockIds = new Set(); // referencias marcadas en Almacén para acciones en bloque
+  let cablesSearchTerm = ''; // buscador dentro del panel de Cables y mangueras
+  const CATEGORIAS_STOCK = ['Material eléctrico', 'Material hidráulico', 'Manguera o cable', 'Artículos para cuadros'];
   let listView = 'servido'; // 'servido' | 'devuelto' — which sub-list is shown in Montaje/Proyecto
   const GROUP_LABELS = { montaje: 'orden', proyecto: 'proyecto' };
   const GROUP_LABELS_CAP = { montaje: 'Orden', proyecto: 'Proyecto' };
@@ -854,6 +856,10 @@
   // la forma por defecto de los datos de una orden/proyecto: servido, devuelto, y la
   // solicitud pendiente de recoger (quién la pide + lo que lleva, antes de firmar)
   function emptyGroupData(){ return {servido:[], devuelto:[], pendiente:{requesterName:'', items:[]}}; }
+
+  // esto son SOLO ejemplos para ver cómo se ve la ficha — no son referencias reales de
+  // catálogo de ningún fabricante, por eso el código empieza siempre por "EJEMPLO-".
+  // hay que borrarlos e importar el catálogo real de cada marca en cuanto se pueda
   const nowStr = () => new Date().toLocaleString('es-ES');
   const slug = s => s.trim().toLowerCase().replace(/[^a-z0-9]+/g,'-');
   // esto lo necesito porque si un código o un nombre trae comillas, < o & rompe el HTML
@@ -941,7 +947,7 @@
       safeGet('lists'), safeGet('projects'), safeGet('app_state'),
       safeGet('bobinas'), safeGet('settings'), safeGet('alerts_state'), safeGet('pedido_items'), safeGet('movements_archive'), safeGet('deliveries')
     ]);
-    if(catalog) state.catalog = catalog.map(m => ({id:m.id||uid(), code:m.code, desc:m.desc, qty: typeof m.qty==='number'?m.qty:0, location:m.location||''}));
+    if(catalog) state.catalog = catalog.map(m => ({id:m.id||uid(), code:m.code, desc:m.desc, qty: typeof m.qty==='number'?m.qty:0, location:m.location||'', specs:m.specs||'', marca:m.marca||'', referencia:m.referencia||'', categoria:m.categoria||''}));
     if(movements) state.movements = movements;
     if(movementsArchive) state.movementsArchive = movementsArchive;
     if(bobinas) state.bobinas = bobinas;
@@ -1014,7 +1020,7 @@
   }
   function setupRealtimeWatchers(){
     if(!hasFirebase) return;
-    watchKey('catalog', v => { state.catalog = v.map(m => ({id:m.id||uid(), code:m.code, desc:m.desc, qty: typeof m.qty==='number'?m.qty:0, location:m.location||''})); });
+    watchKey('catalog', v => { state.catalog = v.map(m => ({id:m.id||uid(), code:m.code, desc:m.desc, qty: typeof m.qty==='number'?m.qty:0, location:m.location||'', specs:m.specs||'', marca:m.marca||'', referencia:m.referencia||'', categoria:m.categoria||''})); });
     watchKey('movements', v => { state.movements = v; });
     watchKey('bobinas', v => { state.bobinas = v; });
     watchKey('settings', v => { state.settings = Object.assign({}, state.settings, v); });
@@ -1125,8 +1131,8 @@
   function findAllByCode(code){
     return state.catalog.filter(m => m.code.toLowerCase() === code.toLowerCase());
   }
-  function createCatalogItem(code, desc, location){
-    const item = {id:uid(), code, desc, qty:0, location: location||''};
+  function createCatalogItem(code, desc, location, categoria){
+    const item = {id:uid(), code, desc, qty:0, location: location||'', categoria: categoria||'', specs:'', marca:'', referencia:''};
     state.catalog.push(item);
     saveCatalog();
     return item;
@@ -1271,6 +1277,10 @@
       showStatus('No se puede preparar la recogida, falta stock de: '+faltantes.join(', ')+'. Ajusta las cantidades o repón stock primero.');
       return;
     }
+    // en cuanto pasa la comprobación de stock lo marco como "reservado" — esto es lo
+    // que en el papel de Tecnomat es la columna RESERVA, antes de que venga a firmar
+    target.pendiente.items.forEach(it => { it.reservado = true; });
+    persistCurrentTarget();
     state.pendingDelivery = {
       groupKind: state.mode,
       groupName: state.current[state.mode],
@@ -1282,6 +1292,13 @@
   }
 
   function cancelDelivery(){
+    if(state.pendingDelivery){
+      const target = state.groupData[state.pendingDelivery.groupKind+'::'+state.pendingDelivery.groupName];
+      if(target){
+        target.pendiente.items.forEach(it => { it.reservado = false; });
+        safeSet('group_'+state.pendingDelivery.groupKind+'_'+slug(state.pendingDelivery.groupName), target);
+      }
+    }
     state.pendingDelivery = null;
     resetSignatureCanvas();
     render();
@@ -1600,7 +1617,9 @@
     if(!desc){ showStatus('Escribe una referencia para el material.'); return; }
     const locInput = $('#unknownLoc');
     const location = locInput ? (locInput.value || '').trim() : '';
-    const item = createCatalogItem(pendingUnknownCode.code, desc, location);
+    const categoriaInput = $('#unknownCategoria');
+    const categoria = categoriaInput ? categoriaInput.value : '';
+    const item = createCatalogItem(pendingUnknownCode.code, desc, location, categoria);
     pendingUnknownCode = null;
     proceedWithItem(item); // esto ya pregunta la cantidad y hace la entrada correspondiente
     $('#scanInput').focus();
@@ -1634,7 +1653,7 @@
     render();
   }
 
-  function addManualStock(code, desc, qty, location){
+  function addManualStock(code, desc, qty, location, categoria){
     code = code.trim();
     desc = desc.trim();
     location = (location || '').trim();
@@ -1643,7 +1662,7 @@
     // aquí me quedo con la primera coincidencia — si quiero una referencia distinta bajo
     // el mismo código, para eso está el botón "+ Otra referencia" en la fila del stock
     let item = findInCatalog(code);
-    if(!item) item = createCatalogItem(code, desc, location);
+    if(!item) item = createCatalogItem(code, desc, location, categoria);
     adjustStock(item, qty, 'entrada', 'Almacén (manual)');
     render();
   }
@@ -1724,8 +1743,8 @@
       const name = g.name;
       const pd = state.groupData[kind+'::'+name] || emptyGroupData();
       const rows = [
-        ...pd.servido.map(e => ({Código:e.code, Referencia:e.desc, Cantidad:e.qty, Entregado:e.firstTs||e.ts, Actualizado:e.ts, Estado:'Servido'})),
-        ...pd.devuelto.map(e => ({Código:e.code, Referencia:e.desc, Cantidad:e.qty, Entregado:e.deliveredAt||'', Devuelto:e.ts, Estado:'Devuelto'}))
+        ...pd.pendiente.items.map(it => ({OT:name, Fecha:nowStr(), Artículo:it.code+' — '+it.desc, 'Cantidad pedida':it.qty, Reserva: it.reservado?'✓':'', Recibido:''})),
+        ...pd.servido.map(e => ({OT:name, Fecha:e.firstTs||e.ts, Artículo:e.code+' — '+e.desc, 'Cantidad pedida':e.qty, Reserva:'✓', Recibido:e.firstTs||e.ts}))
       ];
       summary.push({
         [GROUP_LABELS_CAP[kind]]:name,
@@ -1736,7 +1755,7 @@
       let base = sheetName, i = 2;
       while(usedNames.has(sheetName)){ sheetName = (base.slice(0,28)+'_'+i).slice(0,31); i++; }
       usedNames.add(sheetName);
-      const ws = XLSX.utils.json_to_sheet(rows.length?rows:[{Código:'',Referencia:'',Cantidad:'',Entregado:'',Estado:''}]);
+      const ws = XLSX.utils.json_to_sheet(rows.length?rows:[{OT:name, Fecha:'', Artículo:'', 'Cantidad pedida':'', Reserva:'', Recibido:''}]);
       XLSX.utils.book_append_sheet(wb, ws, sheetName);
     });
     const wsSummary = XLSX.utils.json_to_sheet(summary);
@@ -1751,7 +1770,7 @@
     await loadAllGroupData('montaje');
     await loadAllGroupData('proyecto');
     const backup = {
-      version: 4,
+      version: 5,
       exportedAt: nowStr(),
       catalog: state.catalog,
       movements: state.movements,
@@ -1759,7 +1778,8 @@
       groupData: state.groupData,
       bobinas: state.bobinas,
       settings: state.settings,
-      pedidoItems: state.pedidoItems
+      pedidoItems: state.pedidoItems,
+      deliveries: state.deliveries
     };
     const blob = new Blob([JSON.stringify(backup, null, 2)], {type:'application/json'});
     const url = URL.createObjectURL(blob);
@@ -1779,7 +1799,7 @@
       try{
         const data = JSON.parse(ev.target.result);
         if(!confirm('Esto reemplazará el stock, las órdenes de montaje y los proyectos actuales por los de la copia de seguridad. ¿Continuar?')) return;
-        state.catalog = (data.catalog||[]).map(m => ({id:m.id||uid(), code:m.code, desc:m.desc, qty:typeof m.qty==='number'?m.qty:0, location:m.location||''}));
+        state.catalog = (data.catalog||[]).map(m => ({id:m.id||uid(), code:m.code, desc:m.desc, qty:typeof m.qty==='number'?m.qty:0, location:m.location||'', specs:m.specs||'', marca:m.marca||'', referencia:m.referencia||'', categoria:m.categoria||''}));
         state.movements = data.movements || [];
         if(data.groups){
           state.groups = data.groups;
@@ -1802,6 +1822,7 @@
         if(data.bobinas){ state.bobinas = data.bobinas; saveBobinas(); }
         if(data.settings){ state.settings = Object.assign({}, state.settings, data.settings); saveSettings(); }
         if(data.pedidoItems){ state.pedidoItems = data.pedidoItems; savePedido(); }
+        if(data.deliveries){ state.deliveries = data.deliveries; saveDeliveries(); }
         showStatus('Copia de seguridad restaurada correctamente.');
         render();
       }catch(err){
@@ -1817,16 +1838,16 @@
     const stockRows = state.catalog
       .slice()
       .sort((a,b)=>a.code.localeCompare(b.code))
-      .map(m => ({Código:m.code, Referencia:m.desc, Ubicación:m.location||'', 'Stock actual':m.qty}));
+      .map(m => ({Código:m.code, Artículo:m.desc, Referencia:m.referencia||'', Categoría:m.categoria||'', Ubicación:m.location||'', 'Stock actual':m.qty}));
     const movRows = state.movements.map(m => ({
-      Código:m.code, Referencia:m.desc, Cantidad:m.qty,
+      Código:m.code, Artículo:m.desc, Cantidad:m.qty,
       Tipo: movTypeLabel(m.type), Origen:m.origin, Fecha:m.ts
     }));
     const bobinaRows = state.bobinas
       .slice()
       .sort((a,b)=> a.expira.localeCompare(b.expira))
       .map(b => ({Código:b.codigo||'', Referencia:b.desc, Matrícula:b.matricula, 'Devolver antes de':b.expira}));
-    const wsStock = XLSX.utils.json_to_sheet(stockRows.length?stockRows:[{Código:'',Referencia:'','Stock actual':''}]);
+    const wsStock = XLSX.utils.json_to_sheet(stockRows.length?stockRows:[{Código:'',Artículo:'',Referencia:'','Stock actual':''}]);
     const wsMov = XLSX.utils.json_to_sheet(movRows.length?movRows:[{Código:'',Referencia:'',Cantidad:'',Tipo:'',Origen:'',Fecha:''}]);
     const wsBobinas = XLSX.utils.json_to_sheet(bobinaRows.length?bobinaRows:[{Código:'',Referencia:'',Matrícula:'','Devolver antes de':''}]);
     XLSX.utils.book_append_sheet(wb, wsStock, 'Stock actual');
@@ -1836,12 +1857,29 @@
   }
 
   // ---------- Excel export ----------
-  function exportList(target, filename){
+  function exportList(target, filename, ot){
     const wb = XLSX.utils.book_new();
-    const servidoRows = target.servido.map(e => ({Código:e.code, Referencia:e.desc, Cantidad:e.qty, Entregado:e.firstTs||e.ts, Actualizado:e.ts}));
-    const devueltoRows = target.devuelto.map(e => ({Código:e.code, Referencia:e.desc, Cantidad:e.qty, Entregado:e.deliveredAt||'', Devuelto:e.ts}));
-    const wsS = XLSX.utils.json_to_sheet(servidoRows.length?servidoRows:[{Código:'',Referencia:'',Cantidad:'',Entregado:'',Actualizado:''}]);
-    const wsD = XLSX.utils.json_to_sheet(devueltoRows.length?devueltoRows:[{Código:'',Referencia:'',Cantidad:'',Entregado:'',Devuelto:''}]);
+
+    // esta es la hoja principal, calcada del papel de "OBSERVACIONES MATERIALES":
+    // OT, fecha, artículo, cantidad pedida, si está reservada, y cuándo se recibió de verdad
+    const pedidoRows = [
+      ...target.pendiente.items.map(it => ({
+        OT: ot||'', Fecha: nowStr(), Artículo: it.code+' — '+it.desc,
+        'Cantidad pedida': it.qty, Reserva: it.reservado ? '✓' : '', Recibido: ''
+      })),
+      ...target.servido.map(e => ({
+        OT: ot||'', Fecha: e.firstTs||e.ts, Artículo: e.code+' — '+e.desc,
+        'Cantidad pedida': e.qty, Reserva: '✓', Recibido: e.firstTs||e.ts
+      }))
+    ];
+    const wsPedido = XLSX.utils.json_to_sheet(pedidoRows.length?pedidoRows:[{OT:ot||'', Fecha:'', Artículo:'', 'Cantidad pedida':'', Reserva:'', Recibido:''}]);
+    XLSX.utils.book_append_sheet(wb, wsPedido, 'Pedido de materiales');
+
+    // y estas dos las dejo también, con más detalle técnico por si hace falta
+    const servidoRows = target.servido.map(e => ({Código:e.code, Artículo:e.desc, Cantidad:e.qty, Entregado:e.firstTs||e.ts, Actualizado:e.ts}));
+    const devueltoRows = target.devuelto.map(e => ({Código:e.code, Artículo:e.desc, Cantidad:e.qty, Entregado:e.deliveredAt||'', Devuelto:e.ts}));
+    const wsS = XLSX.utils.json_to_sheet(servidoRows.length?servidoRows:[{Código:'',Artículo:'',Cantidad:'',Entregado:'',Actualizado:''}]);
+    const wsD = XLSX.utils.json_to_sheet(devueltoRows.length?devueltoRows:[{Código:'',Artículo:'',Cantidad:'',Entregado:'',Devuelto:''}]);
     XLSX.utils.book_append_sheet(wb, wsS, 'Servido');
     XLSX.utils.book_append_sheet(wb, wsD, 'Devuelto');
     XLSX.writeFile(wb, filename);
@@ -1857,12 +1895,17 @@
         let added = 0, withStock = 0;
         rows.forEach(row => {
           const keys = Object.keys(row);
-          const codeKey = keys.find(k => /^(c[oó]digo|code|codigo|sku)$/i.test(k.trim())) || keys[0];
-          const descKey = keys.find(k => /^(descripci[oó]n|desc|referencia|ref|material|nombre)$/i.test(k.trim())) || keys[1] || keys[0];
+          // ojo: antes "descripción" y "referencia" competían por el mismo campo y en
+          // vuestro Excel real (CODIGO, CANTIDAD, UBICACIÓN, ARTICULO, REFERENCIA) se
+          // perdía la columna ARTICULO — ahora van cada una a su sitio, sin pisarse
+          const codeKey = keys.find(k => /^(c[oó]digo|code|codigo|sku)$/i.test(k.trim()));
+          const descKey = keys.find(k => /^(descripci[oó]n|desc|art[ií]culo|material|nombre)$/i.test(k.trim()));
+          const refKey = keys.find(k => /^(referencia|ref)$/i.test(k.trim()));
           const qtyKey = keys.find(k => /^(stock|cantidad|existencias)$/i.test(k.trim()));
           const locKey = keys.find(k => /^(ubicaci[oó]n|location|lugar|posici[oó]n)$/i.test(k.trim()));
-          const code = String(row[codeKey]).trim();
-          const desc = String(row[descKey]).trim();
+          const code = codeKey ? String(row[codeKey]).trim() : String(row[keys[0]]).trim();
+          const desc = descKey ? String(row[descKey]).trim() : '';
+          const referenciaVal = refKey ? String(row[refKey]).trim() : '';
           const qtyVal = qtyKey ? parseInt(row[qtyKey],10) : NaN;
           const locVal = locKey ? String(row[locKey]).trim() : '';
           if(!code) return;
@@ -1870,8 +1913,9 @@
           if(item){
             if(desc) item.desc = desc;
             if(locVal) item.location = locVal;
+            if(referenciaVal) item.referencia = referenciaVal;
           }else{
-            item = {id:uid(), code, desc: desc || '(sin referencia)', qty:0, location: locVal};
+            item = {id:uid(), code, desc: desc || referenciaVal || '(sin referencia)', qty:0, location: locVal, referencia: referenciaVal, specs:'', marca:''};
             state.catalog.push(item);
             added++;
           }
@@ -1882,6 +1926,80 @@
         });
         saveCatalog();
         showStatus('Catálogo actualizado: '+rows.length+' filas procesadas, '+added+' materiales nuevos'+(withStock?', '+withStock+' con entrada de stock':'')+'.');
+        render();
+      }catch(err){
+        showStatus('No se pudo leer el archivo: '+err.message);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  // esto es la versión "de verdad, sustituye todo" — el stock queda tal cual el Excel:
+  // las cantidades se ajustan exactamente a lo que ponga el archivo (no se suman), y
+  // cualquier referencia que no aparezca en él se borra del stock, con su movimiento
+  // de "eliminado" en el historial para que quede constancia de por qué desapareció
+  function overwriteCatalogFromFile(file){
+    const reader = new FileReader();
+    reader.onload = function(ev){
+      try{
+        const wb = XLSX.read(ev.target.result, {type:'array'});
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(ws, {defval:''});
+
+        const filas = rows.map(row => {
+          const keys = Object.keys(row);
+          const codeKey = keys.find(k => /^(c[oó]digo|code|codigo|sku)$/i.test(k.trim()));
+          const descKey = keys.find(k => /^(descripci[oó]n|desc|art[ií]culo|material|nombre)$/i.test(k.trim()));
+          const refKey = keys.find(k => /^(referencia|ref)$/i.test(k.trim()));
+          const qtyKey = keys.find(k => /^(stock|cantidad|existencias)$/i.test(k.trim()));
+          const locKey = keys.find(k => /^(ubicaci[oó]n|location|lugar|posici[oó]n)$/i.test(k.trim()));
+          return {
+            code: codeKey ? String(row[codeKey]).trim() : '',
+            desc: descKey ? String(row[descKey]).trim() : '',
+            referencia: refKey ? String(row[refKey]).trim() : '',
+            qty: qtyKey ? parseInt(row[qtyKey],10) : NaN,
+            location: locKey ? String(row[locKey]).trim() : ''
+          };
+        }).filter(f => f.code);
+
+        if(!filas.length){ showStatus('No he encontrado ninguna fila con código en ese archivo.'); return; }
+
+        const codigosEnArchivo = new Set(filas.map(f => f.code.toLowerCase()));
+        const aEliminar = state.catalog.filter(m => !codigosEnArchivo.has(m.code.toLowerCase()));
+
+        const aviso = '¿Sobrescribir todo el stock con este archivo?\n\n'
+          + '- '+filas.length+' referencias en el Excel (se crean o se actualizan)\n'
+          + '- '+aEliminar.length+' referencias que tienes ahora MISMO y no están en el archivo — se ELIMINARÁN del stock\n\n'
+          + 'Esta acción no se puede deshacer. ¿Seguro que quieres continuar?';
+        if(!confirm(aviso)) return;
+
+        let actualizadas = 0, nuevas = 0;
+        filas.forEach(f => {
+          let item = state.catalog.find(m => m.code.toLowerCase() === f.code.toLowerCase());
+          if(!item){
+            item = {id:uid(), code:f.code, desc: f.desc||f.referencia||'(sin referencia)', qty:0, location:f.location, referencia:f.referencia, specs:'', marca:''};
+            state.catalog.push(item);
+            nuevas++;
+          }else{
+            if(f.desc) item.desc = f.desc;
+            if(f.location) item.location = f.location;
+            if(f.referencia) item.referencia = f.referencia;
+            actualizadas++;
+          }
+          // la cantidad la dejo EXACTAMENTE como diga el archivo, no la sumo a lo que hubiera
+          const qtyObjetivo = !isNaN(f.qty) ? Math.max(0, f.qty) : item.qty;
+          const delta = qtyObjetivo - item.qty;
+          if(delta !== 0) adjustStock(item, Math.abs(delta), delta>0?'entrada':'salida', 'Sobrescritura de stock (Excel)');
+        });
+
+        aEliminar.forEach(item => {
+          state.movements.unshift({id:uid(), code:item.code, desc:item.desc, qty:item.qty, type:'eliminado', origin:'Sobrescritura de stock (Excel) — ya no está en el archivo', ts:nowStr(), tsMs:Date.now()});
+        });
+        saveMovements();
+        state.catalog = state.catalog.filter(m => codigosEnArchivo.has(m.code.toLowerCase()));
+        saveCatalog();
+
+        showStatus('Stock sobrescrito: '+nuevas+' nuevas, '+actualizadas+' actualizadas, '+aEliminar.length+' eliminadas.');
         render();
       }catch(err){
         showStatus('No se pudo leer el archivo: '+err.message);
@@ -1904,10 +2022,13 @@
           const rows = raw.map(row => {
             const keys = Object.keys(row);
             const codeKey = keys.find(k => /^(c[oó]digo|code|codigo|sku)$/i.test(k.trim()));
-            const descKey = keys.find(k => /^(descripci[oó]n|desc|referencia|ref|material|nombre)$/i.test(k.trim()));
-            const qtyKey = keys.find(k => /^(cantidad|unidades|uds|qty)$/i.test(k.trim()));
-            const code = codeKey ? String(row[codeKey]).trim() : '';
-            const desc = descKey ? String(row[descKey]).trim() : (!codeKey ? String(row[keys[0]]).trim() : '');
+            const descKey = keys.find(k => /^(descripci[oó]n|desc|art[ií]culo|material|nombre)$/i.test(k.trim()));
+            const refKey = keys.find(k => /^(referencia|ref)$/i.test(k.trim()));
+            // "pedido" es como Tecnomat llama a la cantidad solicitada en el papel de
+            // materiales, lo trato igual que "cantidad"
+            const qtyKey = keys.find(k => /^(cantidad|unidades|uds|qty|pedido)$/i.test(k.trim()));
+            const code = codeKey ? String(row[codeKey]).trim() : (refKey ? String(row[refKey]).trim() : '');
+            const desc = descKey ? String(row[descKey]).trim() : (!codeKey && !refKey ? String(row[keys[0]]).trim() : '');
             const qty = qtyKey ? Math.max(1, parseInt(row[qtyKey],10)||1) : 1;
             return {code, desc, qty};
           }).filter(r => r.code || r.desc);
@@ -1968,6 +2089,7 @@
     // y confirmes, por si el archivo se ha leído mal (sobre todo con el PDF)
     const plan = rows.map(r => {
       let item = r.code ? findInCatalog(r.code) : null;
+      if(!item && r.code) item = state.catalog.find(m => m.referencia && m.referencia.toLowerCase() === r.code.toLowerCase());
       if(!item && r.desc) item = state.catalog.find(m => m.desc.toLowerCase() === r.desc.toLowerCase());
       if(item){
         const toServe = Math.min(r.qty, item.qty);
@@ -2326,6 +2448,10 @@
             <span>Nueva referencia para el código <strong>${esc(pendingUnknownCode.code)}</strong>:</span>
             <input id="unknownDesc" type="text" placeholder="Referencia del material…">
             <input id="unknownLoc" type="text" placeholder="Ubicación (opcional)…">
+            <select id="unknownCategoria" style="background:var(--bg-raised); border:1px solid var(--border); color:var(--text-primary); padding:8px 10px; border-radius:6px;">
+              <option value="">Categoría…</option>
+              ${CATEGORIAS_STOCK.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}
+            </select>
             <button class="cam-btn" id="confirmUnknownBtn">Añadir y registrar</button>
           </div>
         ` : ''}
@@ -2421,12 +2547,14 @@
       <div class="stock-row">
         <input type="checkbox" class="stock-select" data-select-id="${m.id}" ${selectedStockIds.has(m.id)?'checked':''} style="flex:none; width:16px; height:16px; margin-right:4px;">
         <div class="row-main">
-          <div class="row-code">${esc(m.code)}</div>
+          <div class="row-code">${esc(m.code)}${m.referencia?' · <span style="color:var(--text-faint); font-weight:400;">Ref: '+esc(m.referencia)+'</span>':''}${m.marca?' · <span style="color:var(--text-faint); font-weight:400;">'+esc(m.marca)+'</span>':''}</div>
           <div class="row-desc">${esc(m.desc)}</div>
         </div>
         <div class="row-actions">
           <span class="stock-loc ${m.location?'set':'unset'}">📍 ${esc(m.location) || 'Sin ubicar'}</span>
+          ${m.categoria ? `<span class="stock-loc set">🏷 ${esc(m.categoria)}</span>` : ''}
           <span class="stock-qty ${m.qty>0?'ok':'low'}">${m.qty}</span>
+          ${m.specs ? `<button class="cam-btn" style="padding:6px 10px; font-size:11px;" data-specs-btn="${m.id}">ℹ️ Características</button>` : ''}
           <button class="cam-btn" style="padding:6px 10px; font-size:11px;" data-loc-btn="${m.id}">Cambiar ubicación</button>
           <button class="cam-btn" style="padding:6px 10px; font-size:11px;" data-dup-btn="${esc(m.code)}">+ Otra referencia</button>
           <button class="btn-return" style="padding:6px 10px; font-size:11px;" data-del-btn="${m.id}">🗑 Eliminar</button>
@@ -2461,12 +2589,17 @@
           <input type="text" name="mDesc" id="mDesc" placeholder="Referencia del producto">
           <input type="text" name="mLoc" id="mLoc" placeholder="Ubicación (ej. Pasillo 3 - B2)">
           <input type="number" name="mQty" id="mQty" placeholder="Cant." min="1" value="1">
+          <select id="mCategoria" style="background:var(--bg-raised); border:1px solid var(--border); color:var(--text-primary); padding:9px 10px; border-radius:7px; font-size:13px;">
+            <option value="">Categoría…</option>
+            ${CATEGORIAS_STOCK.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}
+          </select>
           <button class="cam-btn" id="addManualBtn">+ Registrar entrada</button>
         </div>
       </div>
     `;
 
     el.insertAdjacentHTML('beforeend', renderBobinasPanelHTML());
+    el.insertAdjacentHTML('beforeend', renderCablesPanelHTML());
 
     el.querySelectorAll('[data-select-id]').forEach(cb=>{
       cb.addEventListener('change', e=>{
@@ -2517,8 +2650,8 @@
       });
     });
     $('#addManualBtn').addEventListener('click', ()=>{
-      addManualStock($('#mCode').value, $('#mDesc').value, $('#mQty').value, $('#mLoc').value);
-      $('#mCode').value=''; $('#mDesc').value=''; $('#mLoc').value=''; $('#mQty').value='1';
+      addManualStock($('#mCode').value, $('#mDesc').value, $('#mQty').value, $('#mLoc').value, $('#mCategoria').value);
+      $('#mCode').value=''; $('#mDesc').value=''; $('#mLoc').value=''; $('#mQty').value='1'; $('#mCategoria').value='';
       $('#mCode').focus();
     });
 
@@ -2542,6 +2675,20 @@
     }));
     el.querySelectorAll('[data-bobina-del]').forEach(btn=>{
       btn.addEventListener('click', ()=> deleteBobina(btn.dataset.bobinaDel));
+    });
+
+    const cablesSearchInput = $('#cablesSearch');
+    if(cablesSearchInput){
+      cablesSearchInput.addEventListener('input', ()=>{
+        cablesSearchTerm = cablesSearchInput.value;
+        renderCablesResults();
+      });
+    }
+    renderCablesResults();
+    const addCableBtn = $('#addCableBtn');
+    if(addCableBtn) addCableBtn.addEventListener('click', ()=>{
+      addManualStock($('#cabCodigo').value, $('#cabDesc').value, $('#cabQty').value, $('#cabLoc').value, 'Manguera o cable');
+      $('#cabCodigo').value=''; $('#cabDesc').value=''; $('#cabQty').value='1'; $('#cabLoc').value='';
     });
   }
 
@@ -2593,6 +2740,52 @@
     `;
   }
 
+  // esta sección filtra el propio stock por la categoría "Manguera o cable" — no es un
+  // catálogo aparte, es una vista rápida de lo que ya tengo dado de alta de este tipo,
+  // más un alta rápida para cuando quiero registrar uno nuevo sin salir de aquí
+  function renderCablesPanelHTML(){
+    return `
+      <div class="panel" style="margin-top:14px;">
+        <p class="panel-title">Cables y mangueras</p>
+        <input type="text" id="cablesSearch" placeholder="Buscar entre los cables/mangueras que ya tengo en stock…" value="${esc(cablesSearchTerm)}" style="width:100%; background:var(--bg-raised); border:1px solid var(--border); color:var(--text-primary); padding:9px 10px; border-radius:7px; font-size:13px; margin-bottom:8px;">
+        <div id="cablesResults" style="max-height:240px; overflow-y:auto;"></div>
+        <p class="panel-title" style="margin-top:12px;">Añadir uno nuevo</p>
+        <div class="manual-stock-form">
+          <input type="text" id="cabCodigo" placeholder="Código">
+          <input type="text" id="cabDesc" placeholder="Referencia (ej. Manguera hidráulica 1/2\\")" style="flex:2; min-width:140px;">
+          <input type="text" id="cabLoc" placeholder="Ubicación">
+          <input type="number" id="cabQty" placeholder="Cant." min="1" value="1">
+          <button class="cam-btn" id="addCableBtn">+ Registrar</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderCablesResults(){
+    const box = $('#cablesResults');
+    if(!box) return;
+    const term = cablesSearchTerm.trim().toLowerCase();
+    const cables = state.catalog.filter(m => m.categoria === 'Manguera o cable');
+    const matches = term ? cables.filter(m => m.code.toLowerCase().includes(term) || m.desc.toLowerCase().includes(term)) : cables;
+    if(!matches.length){
+      box.innerHTML = '<div style="color:var(--text-faint); font-size:12px; padding:6px 0;">'+(cables.length?'Sin coincidencias.':'Todavía no hay cables ni mangueras dados de alta en el stock.')+'</div>';
+      return;
+    }
+    box.innerHTML = matches.slice(0,25).map(m => `
+      <div class="stock-row">
+        <div class="row-main">
+          <div class="row-code">${esc(m.code)}</div>
+          <div class="row-desc">${esc(m.desc)}</div>
+        </div>
+        <div class="row-actions">
+          <span class="stock-loc ${m.location?'set':'unset'}">📍 ${esc(m.location) || 'Sin ubicar'}</span>
+          <span class="stock-qty ${m.qty>0?'ok':'low'}">${m.qty}</span>
+        </div>
+      </div>
+    `).join('');
+  }
+
+
   function renderPedidoMain(){
     const el = $('#mainList');
     const rows = state.pedidoItems.map(it => `
@@ -2642,7 +2835,7 @@
           ${target.pendiente.items.map(it => `
             <div class="ticket-row" data-id="${it.id}">
               <div class="row-main">
-                <div class="row-code">${esc(it.code)}</div>
+                <div class="row-code">${esc(it.code)} ${it.reservado?'<span class="tag-entrada" style="margin-left:4px;">Reservado</span>':''}</div>
                 <div class="row-desc">${esc(it.desc)}</div>
               </div>
               <div class="row-qty">x${it.qty}</div>
@@ -2651,7 +2844,7 @@
           `).join('')}
         </div>
       </div>
-      <button class="btn primary" id="prepareGroupDeliveryBtn" style="margin-bottom:14px;">📝 Preparar recogida y firmar</button>
+      <button class="btn primary" id="prepareGroupDeliveryBtn" style="margin-bottom:14px;">${target.pendiente.items.some(it=>it.reservado)?'📝 Ir a firmar la recogida':'📝 Preparar recogida y firmar'}</button>
     ` : '';
 
     const tabs = `
@@ -2765,10 +2958,19 @@
           <p class="panel-title">Exportar / Importar</p>
           <button class="btn primary" id="exportStockBtn">Exportar stock y movimientos</button>
           <label class="btn" style="text-align:center; display:block;">
-            Importar catálogo (Excel/CSV)
+            Importar catálogo (añade y actualiza, no borra)
             <input type="file" id="catalogFile" accept=".xlsx,.xls,.csv" style="display:none;">
           </label>
           <input type="text" id="catalogSearch" placeholder="Buscar en el stock…" value="${catalogSearchTerm}" style="width:100%; background:var(--bg-raised); border:1px solid var(--border); color:var(--text-primary); padding:9px 10px; border-radius:7px; font-size:13px; margin-top:4px;">
+        </div>
+
+        <div class="panel" style="border-color:var(--danger);">
+          <p class="panel-title" style="color:var(--danger);">Sobrescribir todo el stock</p>
+          <p style="font-size:11.5px; color:var(--text-faint); margin:0 0 8px 0;">Sube tu Excel de inventario actualizado y el stock quedará EXACTAMENTE como ese archivo — las cantidades se ajustan a lo que ponga, y cualquier referencia que ya tuvieras y no esté en el archivo se elimina.</p>
+          <label class="btn ghost-danger" style="text-align:center; display:block;">
+            🔄 Sobrescribir con este Excel
+            <input type="file" id="overwriteCatalogFile" accept=".xlsx,.xls,.csv" style="display:none;">
+          </label>
         </div>
 
         <div class="panel">
@@ -2829,6 +3031,11 @@
       const fileInput = $('#catalogFile');
       if(fileInput) fileInput.addEventListener('change', e=>{
         if(e.target.files[0]) importCatalogFile(e.target.files[0]);
+      });
+      const overwriteInput = $('#overwriteCatalogFile');
+      if(overwriteInput) overwriteInput.addEventListener('change', e=>{
+        if(e.target.files[0]) overwriteCatalogFromFile(e.target.files[0]);
+        e.target.value = '';
       });
       $('#exportBackupBtn').addEventListener('click', exportBackup);
       const backupInput = $('#backupFile');
@@ -2965,7 +3172,7 @@
     const exportBtn = $('#exportBtn');
     if(exportBtn) exportBtn.addEventListener('click', ()=>{
       const label = state.current[state.mode] || state.mode;
-      exportList(target, `materiales_${slug(label)}_${Date.now()}.xlsx`);
+      exportList(target, `materiales_${slug(label)}_${Date.now()}.xlsx`, label);
     });
     const clearBtn = $('#clearBtn');
     if(clearBtn) clearBtn.addEventListener('click', clearCurrentList);
