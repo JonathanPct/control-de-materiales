@@ -1613,8 +1613,8 @@
   // todavía NO toca el stock, eso solo pasa al firmar la recogida
   function addToPendiente(target, item, qty){
     const existente = target.pendiente.items.find(it => it.itemId === item.id);
-    if(existente){ existente.qty += qty; existente.pedido = (existente.pedido||0) + qty; }
-    else target.pendiente.items.push({id:uid(), itemId:item.id, code:item.code, desc:item.desc, qty, pedido:qty});
+    if(existente){ existente.qty += qty; }
+    else target.pendiente.items.push({id:uid(), itemId:item.id, code:item.code, desc:item.desc, qty, pedido:0, reserva:0});
   }
 
   function proceedWithItem(item){
@@ -2713,8 +2713,9 @@
       <div class="stock-row">
         <input type="checkbox" class="stock-select" data-select-id="${m.id}" ${selectedStockIds.has(m.id)?'checked':''} style="flex:none; width:16px; height:16px; margin-right:4px;">
         <div class="row-main">
-          <div class="row-code">${esc(m.code)}${m.referencia?' · <span style="color:var(--text-faint); font-weight:400;">Ref: '+esc(m.referencia)+'</span>':''}${m.marca?' · <span style="color:var(--text-faint); font-weight:400;">'+esc(m.marca)+'</span>':''}</div>
-          <div class="row-desc">${esc(m.desc)}</div>
+          <div class="row-code">${esc(m.code)}${m.marca?' · <span style="color:var(--text-faint); font-weight:400;">'+esc(m.marca)+'</span>':''}</div>
+          <div class="row-desc">${esc(m.desc) || '<span style="color:var(--text-faint); font-style:italic;">Sin artículo — pulsa "+ Categoría" o edítalo desde el Excel</span>'}</div>
+          ${m.referencia ? `<div style="font-size:11px; color:var(--text-faint); margin-top:1px;">Ref: ${esc(m.referencia)}</div>` : ''}
         </div>
         <div class="row-actions">
           <span class="stock-loc ${m.location?'set':'unset'}">📍 ${esc(m.location) || 'Sin ubicar'}</span>
