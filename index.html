@@ -447,6 +447,7 @@
   }
   .manual-stock-form input[name="mCode"]{flex:1; min-width:90px;}
   .manual-stock-form input[name="mDesc"]{flex:2; min-width:140px;}
+  .manual-stock-form input[name="mRef"]{flex:1.2; min-width:110px;}
   .manual-stock-form input[name="mLoc"]{flex:1.4; min-width:130px;}
   .manual-stock-form input[name="mQty"]{width:80px;}
 
@@ -1192,8 +1193,8 @@
   function findAllByCode(code){
     return state.catalog.filter(m => m.code.toLowerCase() === code.toLowerCase());
   }
-  function createCatalogItem(code, desc, location, categoria){
-    const item = {id:uid(), code, desc, qty:0, location: location||'', categoria: categoria||'', specs:'', marca:'', referencia:''};
+  function createCatalogItem(code, desc, location, categoria, referencia){
+    const item = {id:uid(), code, desc, qty:0, location: location||'', categoria: categoria||'', specs:'', marca:'', referencia: referencia||''};
     state.catalog.push(item);
     saveCatalog();
     return item;
@@ -1355,7 +1356,7 @@
       const ot = state.current[state.mode];
       let msg = 'Pedido de materiales guardado en '+(state.mode==='montaje'?'Montaje/Venta':'Proyecto')+' "'+ot+'":\n\n';
       target.pendiente.items.forEach(it => {
-        msg += '- '+it.code+' · '+it.desc+' · Cantidad: '+it.qty+' · Pedido: '+(it.pedido!=null?it.pedido:it.qty)+(it.reservado?' · Reservado':'')+'\n';
+        msg += '- '+it.code+' · '+it.desc+' · Cantidad: '+it.qty+' · Pedido: '+(it.pedido!=null?it.pedido:it.qty)+' · Reserva: '+(it.reserva!=null?it.reserva:0)+'\n';
       });
       msg += '\nPedido por: '+(target.pendiente.requesterName || 'sin especificar');
       sendEmailAlert('Nuevo pedido de materiales — '+ot, msg);
@@ -1726,12 +1727,14 @@
     if(!pendingUnknownCode) return;
     const descInput = $('#unknownDesc');
     const desc = (descInput.value || '').trim();
-    if(!desc){ showStatus('Escribe una referencia para el material.'); return; }
+    if(!desc){ showStatus('Escribe el artículo para el material.'); return; }
+    const refInput = $('#unknownRef');
+    const referencia = refInput ? (refInput.value || '').trim() : '';
     const locInput = $('#unknownLoc');
     const location = locInput ? (locInput.value || '').trim() : '';
     const categoriaInput = $('#unknownCategoria');
     const categoria = categoriaInput ? categoriaInput.value : '';
-    const item = createCatalogItem(pendingUnknownCode.code, desc, location, categoria);
+    const item = createCatalogItem(pendingUnknownCode.code, desc, location, categoria, referencia);
     pendingUnknownCode = null;
     proceedWithItem(item); // esto ya pregunta la cantidad y hace la entrada correspondiente
     $('#scanInput').focus();
@@ -1765,16 +1768,17 @@
     render();
   }
 
-  function addManualStock(code, desc, qty, location, categoria){
+  function addManualStock(code, articulo, qty, location, categoria, referencia){
     code = code.trim();
-    desc = desc.trim();
+    articulo = articulo.trim();
     location = (location || '').trim();
+    referencia = (referencia || '').trim();
     qty = Math.max(1, parseInt(qty,10) || 0);
-    if(!code || !desc || !qty){ showStatus('Rellena código, referencia y una cantidad válida.'); return; }
+    if(!code || !articulo || !qty){ showStatus('Rellena código, artículo y una cantidad válida.'); return; }
     // aquí me quedo con la primera coincidencia — si quiero una referencia distinta bajo
     // el mismo código, para eso está el botón "+ Otra referencia" en la fila del stock
     let item = findInCatalog(code);
-    if(!item) item = createCatalogItem(code, desc, location, categoria);
+    if(!item) item = createCatalogItem(code, articulo, location, categoria, referencia);
     adjustStock(item, qty, 'entrada', 'Almacén (manual)');
     render();
   }
@@ -1855,8 +1859,8 @@
       const name = g.name;
       const pd = state.groupData[kind+'::'+name] || emptyGroupData();
       const rows = [
-        ...pd.pendiente.items.map(it => ({OT:name, Fecha:nowStr(), Artículo:it.code+' — '+it.desc, 'Cantidad pedida':it.qty, Reserva: it.reservado?'✓':'', Recibido:''})),
-        ...pd.servido.map(e => ({OT:name, Fecha:e.firstTs||e.ts, Artículo:e.code+' — '+e.desc, 'Cantidad pedida':e.qty, Reserva:'✓', Recibido:e.firstTs||e.ts}))
+        ...pd.pendiente.items.map(it => ({OT:name, Fecha:nowStr(), Artículo:it.code+' — '+it.desc, 'Cantidad pedida':it.qty, Pedido:(it.pedido!=null?it.pedido:it.qty), Reserva:(it.reserva!=null?it.reserva:0), Recibido:''})),
+        ...pd.servido.map(e => ({OT:name, Fecha:e.firstTs||e.ts, Artículo:e.code+' — '+e.desc, 'Cantidad pedida':e.qty, Pedido:e.qty, Reserva:e.qty, Recibido:e.firstTs||e.ts}))
       ];
       summary.push({
         [GROUP_LABELS_CAP[kind]]:name,
@@ -1867,7 +1871,7 @@
       let base = sheetName, i = 2;
       while(usedNames.has(sheetName)){ sheetName = (base.slice(0,28)+'_'+i).slice(0,31); i++; }
       usedNames.add(sheetName);
-      const ws = jsonToBrandedSheet(rows, {OT:name, Fecha:'', Artículo:'', 'Cantidad pedida':'', Reserva:'', Recibido:''});
+      const ws = jsonToBrandedSheet(rows, {OT:name, Fecha:'', Artículo:'', 'Cantidad pedida':'', Pedido:'', Reserva:'', Recibido:''});
       XLSX.utils.book_append_sheet(wb, ws, sheetName);
     });
     const wsSummary = jsonToBrandedSheet(summary);
@@ -1977,14 +1981,14 @@
     const pedidoRows = [
       ...target.pendiente.items.map(it => ({
         OT: ot||'', Fecha: nowStr(), Artículo: it.code+' — '+it.desc,
-        'Cantidad pedida': it.qty, Reserva: it.reservado ? '✓' : '', Recibido: ''
+        'Cantidad pedida': it.qty, Pedido: (it.pedido!=null?it.pedido:it.qty), Reserva: (it.reserva!=null?it.reserva:0), Recibido: ''
       })),
       ...target.servido.map(e => ({
         OT: ot||'', Fecha: e.firstTs||e.ts, Artículo: e.code+' — '+e.desc,
-        'Cantidad pedida': e.qty, Reserva: '✓', Recibido: e.firstTs||e.ts
+        'Cantidad pedida': e.qty, Pedido: e.qty, Reserva: e.qty, Recibido: e.firstTs||e.ts
       }))
     ];
-    const wsPedido = jsonToBrandedSheet(pedidoRows, {OT:ot||'', Fecha:'', Artículo:'', 'Cantidad pedida':'', Reserva:'', Recibido:''});
+    const wsPedido = jsonToBrandedSheet(pedidoRows, {OT:ot||'', Fecha:'', Artículo:'', 'Cantidad pedida':'', Pedido:'', Reserva:'', Recibido:''});
     XLSX.utils.book_append_sheet(wb, wsPedido, 'Pedido de materiales');
 
     // y estas dos las dejo también, con más detalle técnico por si hace falta
@@ -2606,7 +2610,8 @@
         ${pendingUnknownCode ? `
           <div class="unknown-box">
             <span>Nueva referencia para el código <strong>${esc(pendingUnknownCode.code)}</strong>:</span>
-            <input id="unknownDesc" type="text" placeholder="Referencia del material…">
+            <input id="unknownDesc" type="text" placeholder="Artículo…">
+            <input id="unknownRef" type="text" placeholder="Referencia (opcional)…">
             <input id="unknownLoc" type="text" placeholder="Ubicación (opcional)…">
             <select id="unknownCategoria" style="background:var(--bg-raised); border:1px solid var(--border); color:var(--text-primary); padding:8px 10px; border-radius:6px;">
               <option value="">Categoría…</option>
@@ -2668,6 +2673,7 @@
     if(confirmBtn){
       confirmBtn.addEventListener('click', confirmUnknown);
       $('#unknownDesc').addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); confirmUnknown(); }});
+      $('#unknownRef').addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); confirmUnknown(); }});
       $('#unknownLoc').addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); confirmUnknown(); }});
       $('#unknownDesc').focus();
     }
@@ -2747,7 +2753,8 @@
         <p class="panel-title">Añadir stock manualmente</p>
         <div class="manual-stock-form">
           <input type="text" name="mCode" id="mCode" placeholder="Código">
-          <input type="text" name="mDesc" id="mDesc" placeholder="Referencia del producto">
+          <input type="text" name="mDesc" id="mDesc" placeholder="Artículo">
+          <input type="text" name="mRef" id="mRef" placeholder="Referencia (opcional)">
           <input type="text" name="mLoc" id="mLoc" placeholder="Ubicación (ej. Pasillo 3 - B2)">
           <input type="number" name="mQty" id="mQty" placeholder="Cant." min="1" value="1">
           <select id="mCategoria" style="background:var(--bg-raised); border:1px solid var(--border); color:var(--text-primary); padding:9px 10px; border-radius:7px; font-size:13px;">
@@ -2814,8 +2821,8 @@
       });
     });
     $('#addManualBtn').addEventListener('click', ()=>{
-      addManualStock($('#mCode').value, $('#mDesc').value, $('#mQty').value, $('#mLoc').value, $('#mCategoria').value);
-      $('#mCode').value=''; $('#mDesc').value=''; $('#mLoc').value=''; $('#mQty').value='1'; $('#mCategoria').value='';
+      addManualStock($('#mCode').value, $('#mDesc').value, $('#mQty').value, $('#mLoc').value, $('#mCategoria').value, $('#mRef').value);
+      $('#mCode').value=''; $('#mDesc').value=''; $('#mRef').value=''; $('#mLoc').value=''; $('#mQty').value='1'; $('#mCategoria').value='';
       $('#mCode').focus();
     });
 
@@ -2851,8 +2858,8 @@
     renderCablesResults();
     const addCableBtn = $('#addCableBtn');
     if(addCableBtn) addCableBtn.addEventListener('click', ()=>{
-      addManualStock($('#cabCodigo').value, $('#cabDesc').value, $('#cabQty').value, $('#cabLoc').value, 'Manguera o cable');
-      $('#cabCodigo').value=''; $('#cabDesc').value=''; $('#cabQty').value='1'; $('#cabLoc').value='';
+      addManualStock($('#cabCodigo').value, $('#cabArticulo').value, $('#cabQty').value, $('#cabLoc').value, 'Manguera o cable', $('#cabRef').value);
+      $('#cabCodigo').value=''; $('#cabArticulo').value=''; $('#cabRef').value=''; $('#cabQty').value='1'; $('#cabLoc').value='';
     });
   }
 
@@ -2916,7 +2923,8 @@
         <p class="panel-title" style="margin-top:12px;">Añadir uno nuevo</p>
         <div class="manual-stock-form">
           <input type="text" id="cabCodigo" placeholder="Código">
-          <input type="text" id="cabDesc" placeholder="Referencia (ej. Manguera hidráulica 1/2\\")" style="flex:2; min-width:140px;">
+          <input type="text" id="cabArticulo" placeholder="Artículo (ej. Manguera hidráulica 1/2\\")" style="flex:2; min-width:140px;">
+          <input type="text" id="cabRef" placeholder="Referencia (opcional)">
           <input type="text" id="cabLoc" placeholder="Ubicación">
           <input type="number" id="cabQty" placeholder="Cant." min="1" value="1">
           <button class="cam-btn" id="addCableBtn">+ Registrar</button>
@@ -3027,11 +3035,11 @@
       const ot = state.current[state.mode] || '';
       const filasPendientes = target.pendiente.items.map(it => ({
         id: it.id, esPendiente: true, fecha: nowStr(), articulo: it.code+' — '+it.desc,
-        cantidad: it.qty, pedido: (it.pedido!=null?it.pedido:it.qty), reserva: !!it.reservado, recibido: ''
+        cantidad: it.qty, pedido: (it.pedido!=null?it.pedido:it.qty), reserva: (it.reserva!=null?it.reserva:0), recibido: ''
       }));
       const filasServidas = target.servido.map(e => ({
         id: e.id, esPendiente: false, fecha: e.firstTs||e.ts, articulo: e.code+' — '+e.desc,
-        cantidad: e.qty, pedido: e.qty, reserva: true, recibido: e.firstTs||e.ts
+        cantidad: e.qty, pedido: e.qty, reserva: e.qty, recibido: e.firstTs||e.ts
       }));
       const filasHoja = [...filasPendientes, ...filasServidas];
 
@@ -3055,7 +3063,7 @@
                     <td>${esc(f.articulo)}</td>
                     <td><input type="number" min="0" value="${f.cantidad}" class="hoja-num" data-hoja-id="${f.id}" data-hoja-campo="qty"></td>
                     <td><input type="number" min="0" value="${f.pedido}" class="hoja-num" data-hoja-id="${f.id}" data-hoja-campo="pedido"></td>
-                    <td style="text-align:center;"><input type="checkbox" data-hoja-reserva="${f.id}" ${f.reserva?'checked':''}></td>
+                    <td><input type="number" min="0" value="${f.reserva}" class="hoja-num" data-hoja-id="${f.id}" data-hoja-campo="reserva"></td>
                     <td style="text-align:center;"><input type="checkbox" data-hoja-recibido="${f.id}"></td>
                   </tr>
                 ` : `
@@ -3065,7 +3073,7 @@
                     <td>${esc(f.articulo)}</td>
                     <td>${f.cantidad}</td>
                     <td>${f.pedido}</td>
-                    <td style="text-align:center;">✓</td>
+                    <td>${f.reserva}</td>
                     <td style="text-align:center;"><input type="checkbox" checked disabled> ${f.recibido}</td>
                   </tr>
                 `).join('')}
@@ -3162,12 +3170,6 @@
         const it = target.pendiente.items.find(x => x.id === inp.dataset.hojaId);
         if(!it) return;
         it[inp.dataset.hojaCampo] = Math.max(0, parseInt(inp.value,10)||0);
-      });
-    });
-    el.querySelectorAll('[data-hoja-reserva]').forEach(cb=>{
-      cb.addEventListener('change', ()=>{
-        const it = target.pendiente.items.find(x => x.id === cb.dataset.hojaReserva);
-        if(it) it.reservado = cb.checked;
       });
     });
     el.querySelectorAll('[data-hoja-recibido]').forEach(cb=>{
