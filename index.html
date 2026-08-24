@@ -313,6 +313,17 @@
   }
   .hoja-pedido-table td:nth-child(3){white-space:normal; min-width:180px;}
   .hoja-pedido-table tr:last-child td{border-bottom:none;}
+  .hoja-num{
+    width:56px;
+    background:var(--bg-raised);
+    border:1px solid var(--border);
+    color:var(--text-primary);
+    padding:5px 6px;
+    border-radius:5px;
+    font-family:inherit;
+    font-size:inherit;
+  }
+  .hoja-pedido-table input[type="checkbox"]{width:16px; height:16px;}
   .ticket-row{
     display:grid;
     grid-template-columns:1fr auto auto auto;
@@ -683,6 +694,7 @@
   <div class="autosave-note" id="autosaveNote"><span class="autosave-dot"></span> Todo se guarda automáticamente en este dispositivo — stock, montaje y proyectos.</div>
 
   <div id="alertBanner" class="alert-banner" style="display:none;"></div>
+  <div id="pedidoNotifBanner"></div>
 
   <div id="globalSearchZone"></div>
 
@@ -799,6 +811,15 @@
     try{ auth = firebase.auth(); }catch(e){ auth = null; }
   }
 
+  // el de taller no debería poder tocar Almacén, solo pedir material desde Montaje/Proyecto —
+  // esto es una restricción de interfaz (comodidad), la de verdad va en las reglas de Firestore
+  function getUserRole(){
+    if(!auth || !auth.currentUser) return 'almacen'; // sin login (o app sin Firebase) = acceso completo
+    const email = (auth.currentUser.email || '').toLowerCase();
+    if(email === 'taller@tecnomat.es') return 'taller';
+    return 'almacen';
+  }
+
   function showLoginScreen(errorMsg){
     document.getElementById('loginScreen').style.display = 'flex';
     document.getElementById('app').style.display = 'none';
@@ -858,6 +879,7 @@
     pedidoItems: [],          // [{id, code, desc, qty}] - el listado que voy montando para pedir material
     pendingDelivery: null,    // {items:[...], recipientName} - el pedido ya congelado, esperando la firma
     deliveries: [],            // [{id, items, recipientName, signature, ts, tsMs}] - entregas ya firmadas
+    notifications: [],          // [{id, groupKind, groupName, requesterName, ts, tsMs, leida}] - avisos de "hay un pedido nuevo"
     settings: {               // esto lo configuro yo mismo desde el panel de avisos
       bobinaAvisoDias: 3,     // con cuántos días de margen quiero que me avise antes de la fecha de devolución
       stockBajoUmbral: 2,     // a partir de qué cantidad considero que el stock está bajo
@@ -891,6 +913,16 @@
   // esto lo necesito porque si un código o un nombre trae comillas, < o & rompe el HTML
   // que monto a mano y luego los botones dejan de encontrar el artículo (bug que tuve)
   const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+
+  // no puedo meter el logo como imagen de verdad (eso es de pago en la librería que uso),
+  // así que dejo "TECNOMAT" como texto en la primera fila de cada hoja que exporto —
+  // uso esto en vez de XLSX.utils.json_to_sheet directamente en todas las exportaciones
+  function jsonToBrandedSheet(rows, fallbackRow){
+    const datos = rows.length ? rows : [fallbackRow || {}];
+    const ws = XLSX.utils.aoa_to_sheet([['TECNOMAT · Control de materiales'], []]);
+    XLSX.utils.sheet_add_json(ws, datos, {origin: 'A3'});
+    return ws;
+  }
 
   // el segundo parámetro es opcional — si le paso una función, me sale un botón de
   // "Deshacer" al lado del aviso, para arreglar al momento si me equivoco al escanear
@@ -968,10 +1000,10 @@
   }
 
   async function loadAll(){
-    const [catalog, movements, groupsMontaje, groupsProyecto, oldLists, oldProjects, appState, bobinas, settings, alerts, pedidoItems, movementsArchive, deliveries] = await Promise.all([
+    const [catalog, movements, groupsMontaje, groupsProyecto, oldLists, oldProjects, appState, bobinas, settings, alerts, pedidoItems, movementsArchive, deliveries, notifications] = await Promise.all([
       safeGet('catalog'), safeGet('movements'), safeGet('groups_montaje'), safeGet('groups_proyecto'),
       safeGet('lists'), safeGet('projects'), safeGet('app_state'),
-      safeGet('bobinas'), safeGet('settings'), safeGet('alerts_state'), safeGet('pedido_items'), safeGet('movements_archive'), safeGet('deliveries')
+      safeGet('bobinas'), safeGet('settings'), safeGet('alerts_state'), safeGet('pedido_items'), safeGet('movements_archive'), safeGet('deliveries'), safeGet('notifications')
     ]);
     if(catalog) state.catalog = catalog.map(m => ({id:m.id||uid(), code:m.code, desc:m.desc, qty: typeof m.qty==='number'?m.qty:0, location:m.location||'', specs:m.specs||'', marca:m.marca||'', referencia:m.referencia||'', categoria:m.categoria||''}));
     if(movements) state.movements = movements;
@@ -979,6 +1011,7 @@
     if(bobinas) state.bobinas = bobinas;
     if(pedidoItems) state.pedidoItems = pedidoItems;
     if(deliveries) state.deliveries = deliveries;
+    if(notifications) state.notifications = notifications;
     if(settings) state.settings = Object.assign({}, state.settings, settings);
     if(alerts) state.alerts = alerts;
     if(groupsMontaje) state.groups.montaje = groupsMontaje;
@@ -1051,6 +1084,7 @@
     watchKey('bobinas', v => { state.bobinas = v; });
     watchKey('settings', v => { state.settings = Object.assign({}, state.settings, v); });
     watchKey('pedido_items', v => { state.pedidoItems = v; });
+    watchKey('notifications', v => { state.notifications = v; });
     watchCurrentGroup();
   }
   // esta la llamo también cada vez que cambio de orden/proyecto, para escuchar la que toca ahora
@@ -1104,6 +1138,7 @@
   function saveBobinas(){ safeSet('bobinas', state.bobinas); }
   function savePedido(){ safeSet('pedido_items', state.pedidoItems); }
   function saveDeliveries(){ safeSet('deliveries', state.deliveries.slice(0,200)); } // con las últimas 200 entregas de sobra
+  function saveNotifications(){ safeSet('notifications', state.notifications.slice(0,100)); }
 
   function exportDeliveries(){
     if(!state.deliveries.length){ showStatus('Todavía no hay entregas firmadas.'); return; }
@@ -1120,7 +1155,7 @@
       });
     });
     const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.json_to_sheet(rows);
+    const ws = jsonToBrandedSheet(rows, {Fecha:'', 'Recibido por':'', Código:'', Referencia:'', Cantidad:''});
     XLSX.utils.book_append_sheet(wb, ws, 'Entregas firmadas');
     XLSX.writeFile(wb, `entregas_firmadas_${Date.now()}.xlsx`);
   }
@@ -1308,6 +1343,37 @@
   // ---------- Entrega con firma (el material no se descuenta hasta que se firma) ----------
   // prepara la recogida de la solicitud pendiente de la orden/proyecto activo — hasta
   // que no se firme, no se toca el stock ni se mueve nada a "servido"
+  // guarda los cambios de la Hoja de pedido (cantidad/pedido/reserva ya se han ido
+  // actualizando en memoria al editar cada campo) y avisa a almacén por correo de que
+  // hay un pedido nuevo o modificado, con el detalle línea a línea
+  function saveHojaPedido(){
+    const target = currentTarget();
+    if(!target) return;
+    persistCurrentTarget();
+
+    if(target.pendiente.items.length){
+      const ot = state.current[state.mode];
+      let msg = 'Pedido de materiales guardado en '+(state.mode==='montaje'?'Montaje/Venta':'Proyecto')+' "'+ot+'":\n\n';
+      target.pendiente.items.forEach(it => {
+        msg += '- '+it.code+' · '+it.desc+' · Cantidad: '+it.qty+' · Pedido: '+(it.pedido!=null?it.pedido:it.qty)+(it.reservado?' · Reservado':'')+'\n';
+      });
+      msg += '\nPedido por: '+(target.pendiente.requesterName || 'sin especificar');
+      sendEmailAlert('Nuevo pedido de materiales — '+ot, msg);
+
+      // este es el aviso que ve almacén dentro de la propia app (no solo el correo) —
+      // al pulsarlo, se les lleva directamente a esta orden/proyecto
+      state.notifications.unshift({
+        id: uid(), groupKind: state.mode, groupName: ot,
+        requesterName: target.pendiente.requesterName || 'sin especificar',
+        lineas: target.pendiente.items.length,
+        ts: nowStr(), tsMs: Date.now(), leida: false
+      });
+      saveNotifications();
+    }
+    showStatus('Pedido guardado' + (hasEmailJS && state.settings.emailDestino ? ' y aviso enviado a almacén.' : '.'));
+    render();
+  }
+
   function prepareDelivery(){
     const target = currentTarget();
     if(!target || !target.pendiente.items.length){ showStatus('La solicitud está vacía, añade algún material primero.'); return; }
@@ -1546,8 +1612,8 @@
   // todavía NO toca el stock, eso solo pasa al firmar la recogida
   function addToPendiente(target, item, qty){
     const existente = target.pendiente.items.find(it => it.itemId === item.id);
-    if(existente) existente.qty += qty;
-    else target.pendiente.items.push({id:uid(), itemId:item.id, code:item.code, desc:item.desc, qty});
+    if(existente){ existente.qty += qty; existente.pedido = (existente.pedido||0) + qty; }
+    else target.pendiente.items.push({id:uid(), itemId:item.id, code:item.code, desc:item.desc, qty, pedido:qty});
   }
 
   function proceedWithItem(item){
@@ -1801,10 +1867,10 @@
       let base = sheetName, i = 2;
       while(usedNames.has(sheetName)){ sheetName = (base.slice(0,28)+'_'+i).slice(0,31); i++; }
       usedNames.add(sheetName);
-      const ws = XLSX.utils.json_to_sheet(rows.length?rows:[{OT:name, Fecha:'', Artículo:'', 'Cantidad pedida':'', Reserva:'', Recibido:''}]);
+      const ws = jsonToBrandedSheet(rows, {OT:name, Fecha:'', Artículo:'', 'Cantidad pedida':'', Reserva:'', Recibido:''});
       XLSX.utils.book_append_sheet(wb, ws, sheetName);
     });
-    const wsSummary = XLSX.utils.json_to_sheet(summary);
+    const wsSummary = jsonToBrandedSheet(summary);
     XLSX.utils.book_append_sheet(wb, wsSummary, 'Resumen');
     // Move summary sheet to the front
     wb.SheetNames.unshift(wb.SheetNames.pop());
@@ -1893,9 +1959,9 @@
       .slice()
       .sort((a,b)=> a.expira.localeCompare(b.expira))
       .map(b => ({Código:b.codigo||'', Referencia:b.desc, Matrícula:b.matricula, 'Devolver antes de':b.expira}));
-    const wsStock = XLSX.utils.json_to_sheet(stockRows.length?stockRows:[{Código:'',Artículo:'',Referencia:'','Stock actual':''}]);
-    const wsMov = XLSX.utils.json_to_sheet(movRows.length?movRows:[{Código:'',Referencia:'',Cantidad:'',Tipo:'',Origen:'',Fecha:''}]);
-    const wsBobinas = XLSX.utils.json_to_sheet(bobinaRows.length?bobinaRows:[{Código:'',Referencia:'',Matrícula:'','Devolver antes de':''}]);
+    const wsStock = jsonToBrandedSheet(stockRows, {Código:'',Artículo:'',Referencia:'','Stock actual':''});
+    const wsMov = jsonToBrandedSheet(movRows, {Código:'',Referencia:'',Cantidad:'',Tipo:'',Origen:'',Fecha:''});
+    const wsBobinas = jsonToBrandedSheet(bobinaRows, {Código:'',Referencia:'',Matrícula:'','Devolver antes de':''});
     XLSX.utils.book_append_sheet(wb, wsStock, 'Stock actual');
     XLSX.utils.book_append_sheet(wb, wsMov, 'Movimientos');
     XLSX.utils.book_append_sheet(wb, wsBobinas, 'Bobinas');
@@ -1918,14 +1984,14 @@
         'Cantidad pedida': e.qty, Reserva: '✓', Recibido: e.firstTs||e.ts
       }))
     ];
-    const wsPedido = XLSX.utils.json_to_sheet(pedidoRows.length?pedidoRows:[{OT:ot||'', Fecha:'', Artículo:'', 'Cantidad pedida':'', Reserva:'', Recibido:''}]);
+    const wsPedido = jsonToBrandedSheet(pedidoRows, {OT:ot||'', Fecha:'', Artículo:'', 'Cantidad pedida':'', Reserva:'', Recibido:''});
     XLSX.utils.book_append_sheet(wb, wsPedido, 'Pedido de materiales');
 
     // y estas dos las dejo también, con más detalle técnico por si hace falta
     const servidoRows = target.servido.map(e => ({Código:e.code, Artículo:e.desc, Cantidad:e.qty, Entregado:e.firstTs||e.ts, Actualizado:e.ts}));
     const devueltoRows = target.devuelto.map(e => ({Código:e.code, Artículo:e.desc, Cantidad:e.qty, Entregado:e.deliveredAt||'', Devuelto:e.ts}));
-    const wsS = XLSX.utils.json_to_sheet(servidoRows.length?servidoRows:[{Código:'',Artículo:'',Cantidad:'',Entregado:'',Actualizado:''}]);
-    const wsD = XLSX.utils.json_to_sheet(devueltoRows.length?devueltoRows:[{Código:'',Artículo:'',Cantidad:'',Entregado:'',Devuelto:''}]);
+    const wsS = jsonToBrandedSheet(servidoRows, {Código:'',Artículo:'',Cantidad:'',Entregado:'',Actualizado:''});
+    const wsD = jsonToBrandedSheet(devueltoRows, {Código:'',Artículo:'',Cantidad:'',Entregado:'',Devuelto:''});
     XLSX.utils.book_append_sheet(wb, wsS, 'Servido');
     XLSX.utils.book_append_sheet(wb, wsD, 'Devuelto');
     XLSX.writeFile(wb, filename);
@@ -2321,9 +2387,11 @@
 
   // ---------- Render ----------
   function render(){
+    if(state.mode === 'almacen' && getUserRole() === 'taller') state.mode = 'montaje'; // taller no entra aquí, ni de rebote
     const appEl = document.getElementById('app');
     if(appEl) appEl.className = 'mode-' + state.mode; // esto es lo que hace que cada sección tenga su color
     renderAlertBanner();
+    renderPedidoNotifBanner();
     renderGlobalSearch();
     renderModeBar();
     renderGroupBar();
@@ -2397,9 +2465,55 @@
     el.innerHTML = '⚠ Aviso: ' + partes.join(' · ') + '. Revísalo en Almacén.';
   }
 
+  // el aviso de "hay un pedido nuevo" — cada línea se puede pulsar y te lleva directo
+  // a esa orden/proyecto, en la pestaña de la Hoja de pedido
+  function renderPedidoNotifBanner(){
+    const el = $('#pedidoNotifBanner');
+    if(!el) return;
+    const sinLeer = state.notifications.filter(n => !n.leida).slice(0,5);
+    if(!sinLeer.length){ el.innerHTML = ''; return; }
+    el.innerHTML = sinLeer.map(n => `
+      <div class="alert-banner" style="cursor:pointer; display:flex; justify-content:space-between; align-items:center; gap:8px;" data-notif-id="${n.id}">
+        <span>📬 Nuevo pedido en <strong>${esc(n.groupName)}</strong> (${n.groupKind==='montaje'?'Montaje/Venta':'Proyecto'}) — pedido por ${esc(n.requesterName)}, ${n.lineas} línea(s). Pulsa para ir ahí.</span>
+        <button class="btn-return" data-notif-close="${n.id}" style="flex:none;">✕</button>
+      </div>
+    `).join('');
+    el.querySelectorAll('[data-notif-id]').forEach(row=>{
+      row.addEventListener('click', (e)=>{
+        if(e.target.closest('[data-notif-close]')) return; // el botón de cerrar tiene su propio manejador
+        irANotificacion(row.dataset.notifId);
+      });
+    });
+    el.querySelectorAll('[data-notif-close]').forEach(btn=>{
+      btn.addEventListener('click', (e)=>{
+        e.stopPropagation();
+        marcarNotificacionLeida(btn.dataset.notifClose);
+      });
+    });
+  }
+
+  function marcarNotificacionLeida(id){
+    const n = state.notifications.find(x => x.id === id);
+    if(n){ n.leida = true; saveNotifications(); }
+    render();
+  }
+
+  async function irANotificacion(id){
+    const n = state.notifications.find(x => x.id === id);
+    if(!n) return;
+    n.leida = true;
+    saveNotifications();
+    state.mode = n.groupKind;
+    await selectGroup(n.groupKind, n.groupName);
+    listView = 'hoja';
+    render();
+  }
+
   function renderModeBar(){
     const bar = $('#modeBar');
-    const modes = [['montaje','Montaje/Venta'],['almacen','Almacén (Stock)'],['proyecto','Proyecto'],['pedido','Pedido']];
+    const esTaller = getUserRole() === 'taller';
+    const modes = [['montaje','Montaje/Venta'],['almacen','Almacén (Stock)'],['proyecto','Proyecto'],['pedido','Pedido']]
+      .filter(([k]) => !(esTaller && k==='almacen')); // taller no ve Almacén, ni falta que le hace
     bar.innerHTML = modes.map(([k,label]) =>
       `<button class="mode-btn ${state.mode===k?'active':''}" data-mode="${k}">${label}</button>`
     ).join('');
@@ -2907,14 +3021,20 @@
 
     let bodyHtml;
     if(listView === 'hoja'){
-      // esta es la misma tabla que ya llevaba el Excel (OT, Fecha, Artículo, Cantidad,
-      // Reserva, Recibido) pero ahora se ve también aquí dentro, en pantalla — junta lo
-      // que todavía está pendiente con lo que ya se entregó y firmó
+      // esta es la misma idea que llevaba el Excel (OT, Fecha, Artículo, Cantidad, Pedido,
+      // Reserva, Recibido) pero editable de verdad aquí dentro — las líneas pendientes se
+      // pueden tocar (cantidad, pedido, reserva), las ya servidas quedan fijas como registro
       const ot = state.current[state.mode] || '';
-      const filasHoja = [
-        ...target.pendiente.items.map(it => ({fecha:nowStr(), articulo:it.code+' — '+it.desc, cantidad:it.qty, reserva:it.reservado, recibido:''})),
-        ...target.servido.map(e => ({fecha:e.firstTs||e.ts, articulo:e.code+' — '+e.desc, cantidad:e.qty, reserva:true, recibido:e.firstTs||e.ts}))
-      ];
+      const filasPendientes = target.pendiente.items.map(it => ({
+        id: it.id, esPendiente: true, fecha: nowStr(), articulo: it.code+' — '+it.desc,
+        cantidad: it.qty, pedido: (it.pedido!=null?it.pedido:it.qty), reserva: !!it.reservado, recibido: ''
+      }));
+      const filasServidas = target.servido.map(e => ({
+        id: e.id, esPendiente: false, fecha: e.firstTs||e.ts, articulo: e.code+' — '+e.desc,
+        cantidad: e.qty, pedido: e.qty, reserva: true, recibido: e.firstTs||e.ts
+      }));
+      const filasHoja = [...filasPendientes, ...filasServidas];
+
       bodyHtml = `
         <div class="ticket">
           <div class="ticket-header">
@@ -2925,21 +3045,36 @@
             ${filasHoja.length ? `
             <table class="hoja-pedido-table">
               <thead>
-                <tr><th>OT</th><th>Fecha</th><th>Artículo</th><th>Cantidad</th><th>Reserva</th><th>Recibido</th></tr>
+                <tr><th>OT</th><th>Fecha</th><th>Artículo</th><th>Cantidad</th><th>Pedido</th><th>Reserva</th><th>Recibido</th></tr>
               </thead>
               <tbody>
-                ${filasHoja.map(f => `
+                ${filasHoja.map(f => f.esPendiente ? `
                   <tr>
                     <td>${esc(ot)}</td>
                     <td>${f.fecha}</td>
                     <td>${esc(f.articulo)}</td>
+                    <td><input type="number" min="0" value="${f.cantidad}" class="hoja-num" data-hoja-id="${f.id}" data-hoja-campo="qty"></td>
+                    <td><input type="number" min="0" value="${f.pedido}" class="hoja-num" data-hoja-id="${f.id}" data-hoja-campo="pedido"></td>
+                    <td style="text-align:center;"><input type="checkbox" data-hoja-reserva="${f.id}" ${f.reserva?'checked':''}></td>
+                    <td style="text-align:center;"><input type="checkbox" data-hoja-recibido="${f.id}"></td>
+                  </tr>
+                ` : `
+                  <tr style="opacity:.75;">
+                    <td>${esc(ot)}</td>
+                    <td>${f.fecha}</td>
+                    <td>${esc(f.articulo)}</td>
                     <td>${f.cantidad}</td>
-                    <td>${f.reserva ? '✓' : ''}</td>
-                    <td>${f.recibido || ''}</td>
+                    <td>${f.pedido}</td>
+                    <td style="text-align:center;">✓</td>
+                    <td style="text-align:center;"><input type="checkbox" checked disabled> ${f.recibido}</td>
                   </tr>
                 `).join('')}
               </tbody>
             </table>
+            ${target.pendiente.items.length ? `
+              <p style="font-size:11px; color:var(--text-faint); margin:10px 0 0 0;">Marcar "Recibido" en una línea pendiente abre la firma de recogida para toda la solicitud (así el stock solo se descuenta cuando se firma de verdad).</p>
+              <button class="btn primary" id="saveHojaPedidoBtn" style="margin-top:8px;">💾 Guardar y avisar a almacén</button>
+            ` : ''}
             ` : '<div class="empty-state">Todavía no hay nada pedido ni servido en esta orden/proyecto.</div>'}
           </div>
         </div>
@@ -3019,6 +3154,32 @@
         returnEntry(id, q);
       });
     });
+
+    // edición de la Hoja de pedido — cantidad, pedido y reserva se guardan al momento
+    // en memoria (y quedan de verdad guardados al pulsar "Guardar y avisar a almacén")
+    el.querySelectorAll('[data-hoja-campo]').forEach(inp=>{
+      inp.addEventListener('change', ()=>{
+        const it = target.pendiente.items.find(x => x.id === inp.dataset.hojaId);
+        if(!it) return;
+        it[inp.dataset.hojaCampo] = Math.max(0, parseInt(inp.value,10)||0);
+      });
+    });
+    el.querySelectorAll('[data-hoja-reserva]').forEach(cb=>{
+      cb.addEventListener('change', ()=>{
+        const it = target.pendiente.items.find(x => x.id === cb.dataset.hojaReserva);
+        if(it) it.reservado = cb.checked;
+      });
+    });
+    el.querySelectorAll('[data-hoja-recibido]').forEach(cb=>{
+      cb.addEventListener('change', ()=>{
+        // no lo dejo marcado directamente — eso solo pasa de verdad cuando se firma
+        // la recogida, así que esta casilla lo que hace es abrir esa pantalla
+        cb.checked = false;
+        prepareDelivery();
+      });
+    });
+    const saveHojaBtn = $('#saveHojaPedidoBtn');
+    if(saveHojaBtn) saveHojaBtn.addEventListener('click', saveHojaPedido);
   }
 
   function renderSidePanel(){

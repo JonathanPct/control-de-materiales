@@ -183,5 +183,51 @@ Esto no es un ajuste de código — es una configuración en la consola de Googl
 
 Con esto, aunque alguien copie tu `apiKey` del código fuente, no podrá usarla desde ningún otro sitio que no sea tu propia página — una capa extra de seguridad, además de las reglas de Firestore y el login.
 
+## 10. Cuenta de taller sin acceso a Almacén
+
+Si alguien entra con el usuario **`taller@tecnomat.es`**, no ve la pestaña de Almacén — solo puede trabajar desde Montaje/Venta, Proyecto y Pedido. Cualquier otra cuenta (incluida `almacen@tecnomat.es`) sigue viendo todo.
+
+**Importante — esto es una restricción de interfaz, no de seguridad de verdad.** Simplemente oculta el botón y redirige si alguien llega ahí por error; no impide técnicamente que alguien con conocimientos edite los datos saltándose la pantalla. Si quieres que sea una restricción real, hay que tocar las reglas de Firestore para que el propio servidor rechace las escrituras de esa cuenta sobre el stock. Esto sí lo puedes hacer sin tocar código:
+
+1. Firebase Console → tu proyecto → **Firestore Database → Reglas**.
+2. Sustituye las reglas actuales por estas (mismo sitio de siempre, sección 8 de este documento):
+   ```
+   rules_version = '2';
+   service cloud.firestore {
+     match /databases/{database}/documents {
+       match /tecnomat_materiales/catalog {
+         allow read: if request.auth != null;
+         allow write: if request.auth != null && request.auth.token.email != 'taller@tecnomat.es';
+       }
+       match /tecnomat_materiales/movements {
+         allow read: if request.auth != null;
+         allow write: if request.auth != null && request.auth.token.email != 'taller@tecnomat.es';
+       }
+       match /tecnomat_materiales/{docId} {
+         allow read, write: if request.auth != null && docId != 'catalog' && docId != 'movements';
+       }
+     }
+   }
+   ```
+3. Publicar.
+
+Con esto, la cuenta de taller puede seguir leyendo el stock (lo necesita para que la solicitud de material compruebe cantidades disponibles), pero el propio Firestore rechaza cualquier intento de escritura sobre `catalog` o `movements` viniendo de esa cuenta — funcione o no la interfaz.
+
+## 11. Aviso de "pedido nuevo" para almacén
+
+Cuando alguien guarda una solicitud desde la Hoja de pedido (botón "💾 Guardar y avisar a almacén"), pasan dos cosas:
+
+1. Se manda un correo (si tienes EmailJS configurado) con el detalle línea a línea.
+2. Aparece un aviso dentro de la propia app, arriba del todo, visible para cualquiera que la tenga abierta — con el nombre de quien lo pidió y cuántas líneas. Al pulsar sobre el aviso, te lleva directamente a esa orden/proyecto, en la pestaña de la Hoja de pedido.
+
+**Limitación real:** este aviso en pantalla solo lo ve quien tenga la app abierta en ese momento (o la abra después, ya que queda guardado hasta que se marque como leído). No hay forma de mandar una notificación push al móvil si la app está cerrada — para eso haría falta configurar notificaciones push de verdad (Firebase Cloud Messaging), que es una pieza bastante más grande de montar. El correo sí llega siempre, esté la app abierta o no.
+
+## 12. Sobre el logo en los Excel exportados
+
+Las exportaciones a Excel (stock, movimientos, órdenes, entregas...) llevan **"TECNOMAT · Control de materiales"** como texto en la primera fila de cada hoja. No es el logo como imagen — la librería gratuita que usa la app para generar Excel (SheetJS) no permite insertar imágenes dentro del archivo, esa función es de pago en esa librería.
+
+Si en algún momento necesitas el logo real como imagen dentro del Excel, la vía sería partir de una plantilla `.xlsx` vuestra que ya tenga el logo puesto, y rellenar los datos dentro de esa plantilla en lugar de generar el archivo desde cero — es un planteamiento distinto y bastante más laborioso de montar.
+
+
 
 
