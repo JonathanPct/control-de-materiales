@@ -2917,6 +2917,8 @@
       el.innerHTML = `<div class="empty-state">Selecciona o crea ${what} en la barra superior para empezar a registrar material.</div>`;
       return;
     }
+    const esTaller = getUserRole() === 'taller';
+    if(esTaller) listView = 'hoja'; // taller solo trabaja con la Hoja de pedido
 
     const pendienteHtml = target.pendiente.items.length ? `
       <div class="ticket" style="margin-bottom:14px; border-color:var(--accent);">
@@ -2937,14 +2939,16 @@
           `).join('')}
         </div>
       </div>
-      <button class="btn primary" id="prepareGroupDeliveryBtn" style="margin-bottom:14px;">${target.pendiente.items.some(it=>it.reservado)?'📝 Ir a firmar la recogida':'📝 Preparar recogida y firmar'}</button>
+      ${esTaller ? '' : `<button class="btn primary" id="prepareGroupDeliveryBtn" style="margin-bottom:14px;">${target.pendiente.items.some(it=>it.reservado)?'📝 Ir a firmar la recogida':'📝 Preparar recogida y firmar'}</button>`}
     ` : '';
 
     const tabs = `
       <div class="scanner-row" style="margin-bottom:10px; flex-wrap:wrap;">
         <button class="mode-btn" data-view="hoja" style="flex:none; padding:8px 16px; ${listView==='hoja'?'background:var(--accent); color:#150A28;':'background:var(--bg-panel); border:1px solid var(--border);'}">📋 Hoja de pedido</button>
+        ${esTaller ? '' : `
         <button class="mode-btn" data-view="servido" style="flex:none; padding:8px 16px; ${listView==='servido'?'background:var(--accent); color:#150A28;':'background:var(--bg-panel); border:1px solid var(--border);'}">Servido (${target.servido.length})</button>
         <button class="mode-btn" data-view="devuelto" style="flex:none; padding:8px 16px; ${listView==='devuelto'?'background:var(--accent); color:#150A28;':'background:var(--bg-panel); border:1px solid var(--border);'}">Devuelto (${target.devuelto.length})</button>
+        `}
       </div>
     `;
 
@@ -2983,7 +2987,7 @@
                     <td><input type="number" min="0" value="${f.cantidad}" class="hoja-num" data-hoja-id="${f.id}" data-hoja-campo="qty"></td>
                     <td><input type="number" min="0" value="${f.pedido}" class="hoja-num" data-hoja-id="${f.id}" data-hoja-campo="pedido"></td>
                     <td><input type="number" min="0" value="${f.reserva}" class="hoja-num" data-hoja-id="${f.id}" data-hoja-campo="reserva"></td>
-                    <td style="text-align:center;"><input type="checkbox" data-hoja-recibido="${f.id}"></td>
+                    <td style="text-align:center;">${esTaller ? '—' : `<input type="checkbox" data-hoja-recibido="${f.id}">`}</td>
                   </tr>
                 ` : `
                   <tr style="opacity:.75;">
@@ -2999,7 +3003,9 @@
               </tbody>
             </table>
             ${target.pendiente.items.length ? `
-              <p style="font-size:11px; color:var(--text-faint); margin:10px 0 0 0;">Marcar "Recibido" en una línea pendiente abre la firma de recogida para toda la solicitud (así el stock solo se descuenta cuando se firma de verdad).</p>
+              <p style="font-size:11px; color:var(--text-faint); margin:10px 0 0 0;">${esTaller
+                ? 'Rellena la solicitud y pulsa "Guardar" — almacén se encarga de preparar y firmar la recogida.'
+                : 'Marcar "Recibido" en una línea pendiente abre la firma de recogida para toda la solicitud (así el stock solo se descuenta cuando se firma de verdad).'}</p>
               <button class="btn primary" id="saveHojaPedidoBtn" style="margin-top:8px;">💾 Guardar y avisar a almacén</button>
             ` : ''}
             ` : '<div class="empty-state">Todavía no hay nada pedido ni servido en esta orden/proyecto.</div>'}

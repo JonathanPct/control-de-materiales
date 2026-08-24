@@ -5,7 +5,7 @@
 // cuando suba un index.html nuevo, cambio este número de versión — eso es lo que
 // hace que el navegador detecte que hay un service worker distinto y arranque
 // el proceso de actualización (que luego el propio index.html avisa al usuario)
-const CACHE_NAME = 'tecnomat-materiales-v17';
+const CACHE_NAME = 'tecnomat-materiales-v18';
 const APP_SHELL = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', event => {
