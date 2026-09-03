@@ -1203,6 +1203,20 @@
     render();
   }
 
+  // pone la cantidad al número exacto que se indique — la diferencia queda registrada
+  // en el historial como entrada o salida, según suba o baje
+  function changeQuantity(id){
+    const item = state.catalog.find(m => m.id === id);
+    if(!item) return;
+    const val = prompt('Nueva cantidad para '+item.code+' — '+item.desc, item.qty);
+    if(val === null) return;
+    const nueva = Math.max(0, parseInt(val,10) || 0);
+    const delta = nueva - item.qty;
+    if(delta === 0) return;
+    adjustStock(item, Math.abs(delta), delta>0?'entrada':'salida', 'Almacén (ajuste manual de cantidad)');
+    render();
+  }
+
   // pone o cambia la categoría a mano, útil para artículos importados sin ella
   function changeCategoria(id){
     const item = state.catalog.find(m => m.id === id);
@@ -1307,6 +1321,8 @@
   function saveHojaPedido(){
     const target = currentTarget();
     if(!target) return;
+    // se marca como guardado — a partir de aquí, taller ya no puede editar estas líneas
+    target.pendiente.items.forEach(it => { it.guardado = true; it.fechaGuardado = nowStr(); });
     persistCurrentTarget();
 
     if(target.pendiente.items.length){
@@ -1558,7 +1574,49 @@
   function addToPendiente(target, item, qty){
     const existente = target.pendiente.items.find(it => it.itemId === item.id);
     if(existente){ existente.qty += qty; }
-    else target.pendiente.items.push({id:uid(), itemId:item.id, code:item.code, desc:item.desc, qty, pedido:0, reserva:0});
+    else target.pendiente.items.push({id:uid(), itemId:item.id, code:item.code, desc:item.desc, referencia:item.referencia||'', qty, pedido:0, reserva:0});
+  }
+
+  // línea sin referencia real — solo un texto describiendo lo que hace falta; almacén
+  // le asigna la referencia de verdad más adelante con asignarReferencia()
+  function addTextoLibreAPendiente(){
+    const target = currentTarget();
+    if(!target) return;
+    if(!target.pendiente.requesterName){
+      showStatus('Indica quién hace la solicitud antes de añadir una línea.');
+      return;
+    }
+    const texto = prompt('Describe el material que hace falta (sin referencia):');
+    if(!texto || !texto.trim()) return;
+    const qtyStr = prompt('¿Cuántas unidades hacen falta?', '1');
+    if(qtyStr === null) return;
+    const qty = Math.max(1, parseInt(qtyStr,10) || 1);
+    target.pendiente.items.push({id:uid(), itemId:null, code:'', desc:'', referencia:'', textoLibre:texto.trim(), qty, pedido:0, reserva:0});
+    persistCurrentTarget();
+    render();
+  }
+
+  // almacén asigna una referencia real de stock a una línea que taller escribió sin saberla
+  function asignarReferencia(pendienteId){
+    const target = currentTarget();
+    if(!target) return;
+    const it = target.pendiente.items.find(x => x.id === pendienteId);
+    if(!it) return;
+    const codigo = prompt('Código de la referencia real para "'+it.textoLibre+'":');
+    if(!codigo || !codigo.trim()) return;
+    let item = findInCatalog(codigo.trim());
+    if(!item){
+      showStatus('Ese código no existe en el stock — date de alta el material en Almacén primero.');
+      return;
+    }
+    it.itemId = item.id;
+    it.code = item.code;
+    it.desc = item.desc;
+    it.referencia = item.referencia || '';
+    delete it.textoLibre;
+    persistCurrentTarget();
+    render();
+    showStatus('Referencia asignada: '+item.code+' — '+item.desc);
   }
 
   function proceedWithItem(item){
@@ -1567,6 +1625,7 @@
       const qty = askQty(label);
       if(qty === null) return;
       adjustStock(item, qty, 'entrada', 'Almacén (escaneo)');
+      if(!item.categoria) changeCategoria(item.id); // sin categoría todavía, se pregunta ahora que se le mete cantidad
       showStatus('Entrada registrada: +'+qty+' · '+label, ()=>{
         adjustStock(item, qty, 'salida', 'Deshacer entrada');
         render();
@@ -1721,7 +1780,9 @@
     // primera coincidencia; para otra referencia con el mismo código, "+ Otra referencia"
     let item = findInCatalog(code);
     if(!item) item = createCatalogItem(code, articulo, location, categoria, referencia);
+    else if(!item.categoria && categoria) item.categoria = categoria;
     adjustStock(item, qty, 'entrada', 'Almacén (manual)');
+    if(!item.categoria) changeCategoria(item.id); // sin categoría todavía, se pregunta ahora que se le mete cantidad
     render();
   }
 
@@ -1921,15 +1982,16 @@
     // hoja calcada del papel "OBSERVACIONES MATERIALES" (OT, fecha, artículo...)
     const pedidoRows = [
       ...target.pendiente.items.map(it => ({
-        OT: ot||'', Fecha: nowStr(), Artículo: it.code+' — '+it.desc,
+        OT: ot||'', Fecha: it.fechaGuardado||nowStr(), Artículo: it.textoLibre ? it.textoLibre+' (sin referencia)' : it.code+' — '+it.desc,
+        Referencia: it.textoLibre ? '' : (it.referencia||''),
         'Cantidad pedida': it.qty, Pedido: (it.pedido!=null?it.pedido:it.qty), Reserva: (it.reserva!=null?it.reserva:0), Recibido: ''
       })),
       ...target.servido.map(e => ({
-        OT: ot||'', Fecha: e.firstTs||e.ts, Artículo: e.code+' — '+e.desc,
+        OT: ot||'', Fecha: e.firstTs||e.ts, Artículo: e.code+' — '+e.desc, Referencia: e.referencia||'',
         'Cantidad pedida': e.qty, Pedido: e.qty, Reserva: e.qty, Recibido: e.firstTs||e.ts
       }))
     ];
-    const wsPedido = jsonToBrandedSheet(pedidoRows, {OT:ot||'', Fecha:'', Artículo:'', 'Cantidad pedida':'', Pedido:'', Reserva:'', Recibido:''});
+    const wsPedido = jsonToBrandedSheet(pedidoRows, {OT:ot||'', Fecha:'', Artículo:'', Referencia:'', 'Cantidad pedida':'', Pedido:'', Reserva:'', Recibido:''});
     XLSX.utils.book_append_sheet(wb, wsPedido, 'Pedido de materiales');
 
     // estas dos quedan también, con más detalle técnico por si hace falta
@@ -2371,9 +2433,17 @@
         <div class="row-actions">
           <span class="stock-loc ${m.location?'set':'unset'}">📍 ${esc(m.location)||'Sin ubicar'}</span>
           <span class="stock-qty ${m.qty>0?'ok':'low'}">${m.qty}</span>
+          <button class="cam-btn" style="padding:5px 9px; font-size:11px;" data-globalsearch-loc="${m.id}">Cambiar ubicación</button>
+          <button class="cam-btn" style="padding:5px 9px; font-size:11px;" data-globalsearch-qty="${m.id}">Cambiar cantidad</button>
         </div>
       </div>
     `).join('') + (matches.length>15 ? `<div style="padding:6px 4px; color:var(--text-faint); font-size:11.5px;">+${matches.length-15} más… afina la búsqueda.</div>` : '');
+    box.querySelectorAll('[data-globalsearch-loc]').forEach(btn=>{
+      btn.addEventListener('click', ()=> changeLocation(btn.dataset.globalsearchLoc));
+    });
+    box.querySelectorAll('[data-globalsearch-qty]').forEach(btn=>{
+      btn.addEventListener('click', ()=> changeQuantity(btn.dataset.globalsearchQty));
+    });
   }
 
   // aviso que salta en cualquier apartado si hay algo pendiente
@@ -2583,12 +2653,21 @@
     const input = $('#scanInput');
     if(input){
       input.addEventListener('keydown', e => {
-        if(e.key === 'Enter'){ e.preventDefault(); handleScan(input.value); }
+        if(e.key === 'Enter'){
+          e.preventDefault();
+          const val = input.value;
+          input.value = ''; // se limpia ya, antes de la pregunta de cantidad, para poder escanear el siguiente sin arrastrar el código anterior
+          handleScan(val);
+        }
       });
       if(!disabled) input.focus();
     }
     const submitBtn = $('#scanSubmitBtn');
-    if(submitBtn) submitBtn.addEventListener('click', ()=> handleScan(input.value));
+    if(submitBtn) submitBtn.addEventListener('click', ()=>{
+      const val = input.value;
+      input.value = '';
+      handleScan(val);
+    });
     const camBtn = $('#camBtn');
     if(camBtn) camBtn.addEventListener('click', ()=> openCamera(handleScan));
     const confirmBtn = $('#confirmUnknownBtn');
@@ -2643,6 +2722,7 @@
           <span class="stock-loc ${m.location?'set':'unset'}">📍 ${esc(m.location) || 'Sin ubicar'}</span>
           ${m.categoria ? `<span class="stock-loc set">🏷 ${esc(m.categoria)}</span>` : ''}
           <span class="stock-qty ${m.qty>0?'ok':'low'}">${m.qty}</span>
+          <button class="cam-btn" style="padding:6px 10px; font-size:11px;" data-qty-btn="${m.id}">Cambiar cantidad</button>
           ${m.specs ? `<button class="cam-btn" style="padding:6px 10px; font-size:11px;" data-specs-btn="${m.id}">ℹ️ Características</button>` : ''}
           <button class="cam-btn" style="padding:6px 10px; font-size:11px;" data-loc-btn="${m.id}">Cambiar ubicación</button>
           <button class="cam-btn" style="padding:6px 10px; font-size:11px;" data-cat-btn="${m.id}">${m.categoria?'Cambiar categoría':'+ Categoría'}</button>
@@ -2658,13 +2738,14 @@
         <p class="panel-title">${selectedStockIds.size} referencia(s) seleccionada(s)</p>
         <div class="backup-row">
           <button class="cam-btn" id="bulkLocBtn">Cambiar ubicación a todas</button>
+          <button class="cam-btn" id="bulkQtyBtn">Cambiar cantidad a todas</button>
           <button class="btn-return" id="bulkDelBtn">🗑 Eliminar seleccionadas</button>
         </div>
       </div>` : ''}
 
       <div class="ticket">
         <div class="ticket-header">
-          <span class="ticket-title">Stock actual</span>
+          <span class="ticket-title"><label style="cursor:pointer; display:flex; align-items:center; gap:5px;"><input type="checkbox" id="selectAllStock" style="width:15px; height:15px;"> Stock actual</label></span>
           <span class="ticket-title">${items.length} referencias</span>
         </div>
         <div class="ticket-body">
@@ -2711,6 +2792,20 @@
       selectedStockIds.clear();
       render();
     });
+    const bulkQtyBtn = $('#bulkQtyBtn');
+    if(bulkQtyBtn) bulkQtyBtn.addEventListener('click', ()=>{
+      const val = prompt('Nueva cantidad para las '+selectedStockIds.size+' referencias seleccionadas (se pone igual en todas):');
+      if(val === null) return;
+      const nueva = Math.max(0, parseInt(val,10) || 0);
+      selectedStockIds.forEach(id=>{
+        const item = state.catalog.find(m=>m.id===id);
+        if(!item) return;
+        const delta = nueva - item.qty;
+        if(delta !== 0) adjustStock(item, Math.abs(delta), delta>0?'entrada':'salida', 'Almacén (ajuste manual en bloque)');
+      });
+      selectedStockIds.clear();
+      render();
+    });
     const bulkDelBtn = $('#bulkDelBtn');
     if(bulkDelBtn) bulkDelBtn.addEventListener('click', ()=>{
       if(!confirm('¿Eliminar '+selectedStockIds.size+' referencias del stock? Esta acción no se puede deshacer.')) return;
@@ -2724,9 +2819,21 @@
       selectedStockIds.clear();
       render();
     });
+    const selectAllBox = $('#selectAllStock');
+    if(selectAllBox){
+      selectAllBox.checked = items.length>0 && items.every(m => selectedStockIds.has(m.id));
+      selectAllBox.addEventListener('change', ()=>{
+        if(selectAllBox.checked) items.forEach(m => selectedStockIds.add(m.id));
+        else items.forEach(m => selectedStockIds.delete(m.id));
+        renderStockMain();
+      });
+    }
 
     el.querySelectorAll('[data-loc-btn]').forEach(btn=>{
       btn.addEventListener('click', ()=> changeLocation(btn.dataset.locBtn));
+    });
+    el.querySelectorAll('[data-qty-btn]').forEach(btn=>{
+      btn.addEventListener('click', ()=> changeQuantity(btn.dataset.qtyBtn));
     });
     el.querySelectorAll('[data-cat-btn]').forEach(btn=>{
       btn.addEventListener('click', ()=> changeCategoria(btn.dataset.catBtn));
@@ -2930,8 +3037,8 @@
           ${target.pendiente.items.map(it => `
             <div class="ticket-row" data-id="${it.id}">
               <div class="row-main">
-                <div class="row-code">${esc(it.code)} ${it.reservado?'<span class="tag-entrada" style="margin-left:4px;">Reservado</span>':''}</div>
-                <div class="row-desc">${esc(it.desc)}</div>
+                <div class="row-code">${it.textoLibre ? '(sin referencia)' : esc(it.code)} ${it.reservado?'<span class="tag-entrada" style="margin-left:4px;">Reservado</span>':''}</div>
+                <div class="row-desc">${it.textoLibre ? '<em>'+esc(it.textoLibre)+'</em>' : esc(it.desc)}</div>
               </div>
               <div class="row-qty">x${it.qty}</div>
               <button class="btn-return" data-pendiente-del="${it.id}">🗑 Quitar</button>
@@ -2957,12 +3064,14 @@
       // misma tabla que el Excel, pero editable — lo servido queda fijo como registro
       const ot = state.current[state.mode] || '';
       const filasPendientes = target.pendiente.items.map(it => ({
-        id: it.id, esPendiente: true, fecha: nowStr(), articulo: it.code+' — '+it.desc,
-        cantidad: it.qty, pedido: (it.pedido!=null?it.pedido:it.qty), reserva: (it.reserva!=null?it.reserva:0), recibido: ''
+        id: it.id, esPendiente: true, fecha: it.fechaGuardado || nowStr(), articulo: it.textoLibre ? '' : (it.code+' — '+it.desc),
+        referencia: it.textoLibre ? '' : (it.referencia||''), textoLibre: it.textoLibre||'',
+        cantidad: it.qty, pedido: (it.pedido!=null?it.pedido:it.qty), reserva: (it.reserva!=null?it.reserva:0), recibido: '',
+        bloqueada: !!(it.guardado && esTaller)
       }));
       const filasServidas = target.servido.map(e => ({
-        id: e.id, esPendiente: false, fecha: e.firstTs||e.ts, articulo: e.code+' — '+e.desc,
-        cantidad: e.qty, pedido: e.qty, reserva: e.qty, recibido: e.firstTs||e.ts
+        id: e.id, esPendiente: false, fecha: e.firstTs||e.ts, articulo: e.code+' — '+e.desc, referencia: e.referencia||'', textoLibre:'',
+        cantidad: e.qty, pedido: e.qty, reserva: e.qty, recibido: e.firstTs||e.ts, bloqueada: true
       }));
       const filasHoja = [...filasPendientes, ...filasServidas];
 
@@ -2976,32 +3085,44 @@
             ${filasHoja.length ? `
             <table class="hoja-pedido-table">
               <thead>
-                <tr><th>OT</th><th>Fecha</th><th>Artículo</th><th>Cantidad</th><th>Pedido</th><th>Reserva</th><th>Recibido</th></tr>
+                <tr><th>OT</th><th>Fecha</th><th>Artículo</th><th>Referencia</th><th>Cantidad</th><th>Pedido</th><th>Reserva</th><th>Recibido</th></tr>
               </thead>
               <tbody>
-                ${filasHoja.map(f => f.esPendiente ? `
-                  <tr>
-                    <td>${esc(ot)}</td>
-                    <td>${f.fecha}</td>
-                    <td>${esc(f.articulo)}</td>
-                    <td><input type="number" min="0" value="${f.cantidad}" class="hoja-num" data-hoja-id="${f.id}" data-hoja-campo="qty"></td>
-                    <td><input type="number" min="0" value="${f.pedido}" class="hoja-num" data-hoja-id="${f.id}" data-hoja-campo="pedido"></td>
-                    <td><input type="number" min="0" value="${f.reserva}" class="hoja-num" data-hoja-id="${f.id}" data-hoja-campo="reserva"></td>
-                    <td style="text-align:center;">${esTaller ? '—' : `<input type="checkbox" data-hoja-recibido="${f.id}">`}</td>
-                  </tr>
-                ` : `
-                  <tr style="opacity:.75;">
-                    <td>${esc(ot)}</td>
-                    <td>${f.fecha}</td>
-                    <td>${esc(f.articulo)}</td>
-                    <td>${f.cantidad}</td>
-                    <td>${f.pedido}</td>
-                    <td>${f.reserva}</td>
-                    <td style="text-align:center;"><input type="checkbox" checked disabled> ${f.recibido}</td>
-                  </tr>
-                `).join('')}
+                ${filasHoja.map(f => {
+                  const articuloCell = f.textoLibre
+                    ? `<em>${esc(f.textoLibre)}</em> <span style="color:var(--danger); font-size:10.5px;">(sin referencia)</span>`
+                    : esc(f.articulo);
+                  const refCell = f.textoLibre
+                    ? (esTaller ? '—' : `<button class="cam-btn" style="padding:4px 8px; font-size:10.5px;" data-asignar-ref="${f.id}">Asignar referencia</button>`)
+                    : esc(f.referencia);
+                  if(!f.esPendiente || f.bloqueada){
+                    return `
+                    <tr style="opacity:.75;">
+                      <td>${esc(ot)}</td>
+                      <td>${f.fecha}</td>
+                      <td>${articuloCell}</td>
+                      <td>${refCell}</td>
+                      <td>${f.cantidad}</td>
+                      <td>${f.pedido}</td>
+                      <td>${f.reserva}</td>
+                      <td style="text-align:center;">${f.esPendiente ? '' : `<input type="checkbox" checked disabled> ${f.recibido}`}</td>
+                    </tr>`;
+                  }
+                  return `
+                    <tr>
+                      <td>${esc(ot)}</td>
+                      <td>${f.fecha}</td>
+                      <td>${articuloCell}</td>
+                      <td>${refCell}</td>
+                      <td><input type="number" min="0" value="${f.cantidad}" class="hoja-num" data-hoja-id="${f.id}" data-hoja-campo="qty"></td>
+                      <td><input type="number" min="0" value="${f.pedido}" class="hoja-num" data-hoja-id="${f.id}" data-hoja-campo="pedido"></td>
+                      <td><input type="number" min="0" value="${f.reserva}" class="hoja-num" data-hoja-id="${f.id}" data-hoja-campo="reserva"></td>
+                      <td style="text-align:center;">${esTaller ? '—' : `<input type="checkbox" data-hoja-recibido="${f.id}">`}</td>
+                    </tr>`;
+                }).join('')}
               </tbody>
             </table>
+            <button class="cam-btn" id="addFreeTextBtn" style="margin-top:8px;">+ No sé la referencia — escribir qué hace falta</button>
             ${target.pendiente.items.length ? `
               <p style="font-size:11px; color:var(--text-faint); margin:10px 0 0 0;">${esTaller
                 ? 'Rellena la solicitud y pulsa "Guardar" — almacén se encarga de preparar y firmar la recogida.'
@@ -3105,6 +3226,11 @@
     });
     const saveHojaBtn = $('#saveHojaPedidoBtn');
     if(saveHojaBtn) saveHojaBtn.addEventListener('click', saveHojaPedido);
+    const addFreeTextBtn = $('#addFreeTextBtn');
+    if(addFreeTextBtn) addFreeTextBtn.addEventListener('click', addTextoLibreAPendiente);
+    el.querySelectorAll('[data-asignar-ref]').forEach(btn=>{
+      btn.addEventListener('click', ()=> asignarReferencia(btn.dataset.asignarRef));
+    });
   }
 
   function renderSidePanel(){
