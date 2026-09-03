@@ -1700,9 +1700,22 @@
         pendingUnknownCode = {code};
         renderScannerZone();
       }else if(state.mode === 'pedido'){
-        showStatus('El código "'+code+'" no está en el stock, así que no lo puedo añadir al pedido.');
+        showStatus('El código "'+code+'" no está en el stock, así que no se puede añadir al pedido.');
       }else{
-        showStatus('No se puede solicitar "'+code+'" — no queda stock (0 unidades). Dalo de alta en Almacén primero.');
+        // no existe en stock — se añade igual como línea sin referencia, para que
+        // almacén le asigne la referencia real más adelante
+        const target = currentTarget();
+        if(!target.pendiente.requesterName){
+          showStatus('Indica quién hace la solicitud (campo "¿Quién lo pide?" de arriba) antes de escanear.');
+        }else{
+          const qty = askQty(code);
+          if(qty !== null){
+            target.pendiente.items.push({id:uid(), itemId:null, code:'', desc:'', referencia:'', textoLibre:code, qty, pedido:0, reserva:0});
+            persistCurrentTarget();
+            showStatus('Añadido sin referencia: '+qty+' · "'+code+'" — almacén le asignará la referencia real.');
+            render();
+          }
+        }
       }
       $('#scanInput').value = '';
       $('#scanInput').focus();
