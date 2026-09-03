@@ -803,6 +803,39 @@
     try{ auth = firebase.auth(); }catch(e){ auth = null; }
   }
 
+  // aviso sonoro + notificación del sistema para pedidos nuevos — solo funciona con la
+  // app abierta (aunque sea en segundo plano si está instalada), no con la app cerrada
+  let idsNotificadosConSonido = new Set();
+  if('Notification' in window && Notification.permission === 'default'){
+    Notification.requestPermission();
+  }
+  function reproducirSonidoAviso(){
+    try{
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      [0, 0.18].forEach(delay => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = 880;
+        gain.gain.setValueAtTime(0.25, ctx.currentTime + delay);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + 0.15);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(ctx.currentTime + delay);
+        osc.stop(ctx.currentTime + delay + 0.15);
+      });
+    }catch(e){}
+  }
+  function mostrarNotificacionSistema(n){
+    if(!('Notification' in window) || Notification.permission !== 'granted') return;
+    try{
+      new Notification('Nuevo pedido en '+n.groupName, {
+        body: 'Pedido por '+n.requesterName+' · '+n.lineas+' línea(s)'+(n.tipo?' · '+n.tipo:''),
+        tag: n.id
+      });
+    }catch(e){}
+  }
+
   // taller no ve Almacén — es solo de interfaz, la restricción real va en Firestore
   function getUserRole(){
     if(!auth || !auth.currentUser) return 'almacen'; // sin login (o app sin Firebase) = acceso completo
@@ -992,6 +1025,7 @@
     if(pedidoItems) state.pedidoItems = pedidoItems;
     if(deliveries) state.deliveries = deliveries;
     if(notifications) state.notifications = notifications;
+    state.notifications.forEach(n => idsNotificadosConSonido.add(n.id)); // no suenan las que ya existían al entrar
     if(settings) state.settings = Object.assign({}, state.settings, settings);
     if(alerts) state.alerts = alerts;
     if(groupsMontaje) state.groups.montaje = groupsMontaje;
@@ -1328,7 +1362,9 @@
 
     if(target.pendiente.items.length){
       const ot = state.current[state.mode];
-      let msg = 'Pedido de materiales guardado en '+(state.mode==='montaje'?'Montaje/Venta':'Proyecto')+' "'+ot+'":\n\n';
+      const grupo = findGroup(state.mode, ot);
+      const tipoTexto = grupo && grupo.tipo ? ' ('+grupo.tipo+')' : '';
+      let msg = 'Pedido de materiales guardado en '+(state.mode==='montaje'?'Montaje/Venta':'Proyecto')+' "'+ot+'"'+tipoTexto+':\n\n';
       target.pendiente.items.forEach(it => {
         msg += '- '+it.code+' · '+it.desc+' · Cantidad: '+it.qty+' · Pedido: '+(it.pedido!=null?it.pedido:it.qty)+' · Reserva: '+(it.reserva!=null?it.reserva:0)+'\n';
       });
@@ -1339,6 +1375,7 @@
       state.notifications.unshift({
         id: uid(), groupKind: state.mode, groupName: ot,
         requesterName: target.pendiente.requesterName || 'sin especificar',
+        tipo: grupo ? grupo.tipo||'' : '',
         lineas: target.pendiente.items.length,
         ts: nowStr(), tsMs: Date.now(), leida: false
       });
@@ -1820,11 +1857,11 @@
     render();
   }
 
-  async function createGroup(kind, name, requesterName){
+  async function createGroup(kind, name, requesterName, tipo){
     name = name.trim();
     if(!name) return;
     if(!findGroup(kind, name)){
-      state.groups[kind].push({name, status:'activo'});
+      state.groups[kind].push({name, status:'activo', tipo: tipo||''});
       saveGroups(kind);
     }
     const key = kind+'::'+name;
@@ -2484,10 +2521,18 @@
     const el = $('#pedidoNotifBanner');
     if(!el) return;
     const sinLeer = state.notifications.filter(n => !n.leida).slice(0,5);
+    // sonido + notificación del sistema solo para las que no se hayan avisado ya en esta sesión
+    sinLeer.forEach(n => {
+      if(!idsNotificadosConSonido.has(n.id)){
+        idsNotificadosConSonido.add(n.id);
+        reproducirSonidoAviso();
+        mostrarNotificacionSistema(n);
+      }
+    });
     if(!sinLeer.length){ el.innerHTML = ''; return; }
     el.innerHTML = sinLeer.map(n => `
       <div class="alert-banner" style="cursor:pointer; display:flex; justify-content:space-between; align-items:center; gap:8px;" data-notif-id="${n.id}">
-        <span>📬 Nuevo pedido en <strong>${esc(n.groupName)}</strong> (${n.groupKind==='montaje'?'Montaje/Venta':'Proyecto'}) — pedido por ${esc(n.requesterName)}, ${n.lineas} línea(s). Pulsa para ir ahí.</span>
+        <span>📬 Nuevo pedido en <strong>${esc(n.groupName)}</strong> (${n.groupKind==='montaje'?'Montaje/Venta':'Proyecto'}${n.tipo?' · '+esc(n.tipo):''}) — pedido por ${esc(n.requesterName)}, ${n.lineas} línea(s). Pulsa para ir ahí.</span>
         <button class="btn-return" data-notif-close="${n.id}" style="flex:none;">✕</button>
       </div>
     `).join('');
@@ -2554,13 +2599,19 @@
       <div class="project-bar">
         <select id="groupSelect">
           <option value="">${selectLabel}</option>
-          ${state.groups[kind].map(g=>`<option value="${esc(g.name)}" ${g.name===currentName?'selected':''}>${esc(g.name)}${g.status==='finalizado'?' (Finalizado)':''}</option>`).join('')}
+          ${state.groups[kind].map(g=>`<option value="${esc(g.name)}" ${g.name===currentName?'selected':''}>${esc(g.name)}${g.tipo?' ['+esc(g.tipo)+']':''}${g.status==='finalizado'?' (Finalizado)':''}</option>`).join('')}
         </select>
         <input type="text" id="newGroupInput" placeholder="${newLabel}">
         <input type="text" id="newGroupRequester" placeholder="¿Quién pide el material?">
+        <select id="newGroupTipo">
+          <option value="">¿Interno o externo?</option>
+          <option value="Interno">Interno</option>
+          <option value="Externo">Externo</option>
+        </select>
         <button class="cam-btn" id="createGroupBtn">+ Crear</button>
         ${current?`
           <span class="pill-current" style="${current.status==='finalizado'?'background:var(--bg-raised-2); color:var(--text-muted);':''}">${current.status==='finalizado'?'Finalizado':'Activo'}</span>
+          ${current.tipo ? `<span class="pill-current">${esc(current.tipo)}</span>` : ''}
           <button class="cam-btn" id="toggleStatusBtn">${current.status==='finalizado'?'↺ Reactivar':'✓ Finalizar'}</button>
           <button class="btn-return" id="deleteGroupBtn">🗑 Eliminar</button>
         `:''}
@@ -2570,9 +2621,11 @@
     const tryCreate = () => {
       const nombre = $('#newGroupInput').value;
       const requester = $('#newGroupRequester').value.trim();
+      const tipo = $('#newGroupTipo').value;
       if(!nombre.trim()){ showStatus('Escribe el nombre de '+(kind==='montaje'?'la orden':'el proyecto')+'.'); return; }
       if(!requester){ showStatus('Indica quién pide el material para esta '+(kind==='montaje'?'orden':'este proyecto')+' — es obligatorio.'); return; }
-      createGroup(kind, nombre, requester);
+      if(!tipo){ showStatus('Indica si el material es interno o externo — es obligatorio.'); return; }
+      createGroup(kind, nombre, requester, tipo);
     };
     $('#createGroupBtn').addEventListener('click', tryCreate);
     $('#newGroupInput').addEventListener('keydown', e => { if(e.key==='Enter'){ e.preventDefault(); tryCreate(); } });
@@ -3098,7 +3151,7 @@
         <div class="ticket">
           <div class="ticket-header">
             <span class="ticket-title">Hoja de pedido de materiales</span>
-            <span class="ticket-title">OT: ${esc(ot)}</span>
+            <span class="ticket-title">OT: ${esc(ot)}${(findGroup(state.mode,ot)||{}).tipo ? ' · '+esc(findGroup(state.mode,ot).tipo) : ''}</span>
           </div>
           <div class="ticket-body" style="overflow-x:auto;">
             ${filasHoja.length ? `
