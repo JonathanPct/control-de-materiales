@@ -236,6 +236,8 @@ Las exportaciones a Excel (stock, movimientos, órdenes, entregas...) llevan **"
 
 Si en algún momento necesitas el logo real como imagen dentro del Excel, la vía sería partir de una plantilla `.xlsx` vuestra que ya tenga el logo puesto, y rellenar los datos dentro de esa plantilla en lugar de generar el archivo desde cero — es un planteamiento distinto y bastante más laborioso de montar.
 
+## 14. Rendimiento con inventarios grandes
 
+Con inventarios de miles de referencias, la lista de Almacén ahora solo pinta 80 a la vez, con un botón **"Cargar más"** al final para ver el resto — antes se pintaban todas de golpe, lo cual notaba lento con inventarios grandes (más aún con el estilo de esquina cortada del rediseño, que es más costoso de dibujar que un botón normal cuando se repite cientos de veces). Los botones de cada fila del stock (Cambiar ubicación, Categoría, Cantidad, Eliminar...) volvieron a un estilo más simple por el mismo motivo — el aspecto de "esquina cortada" se queda en las tarjetas, pestañas y botones principales, que aparecen pocas veces en pantalla, no en los que se repiten por cada artículo.
 
 
