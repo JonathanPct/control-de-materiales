@@ -215,19 +215,29 @@ Con esto, la cuenta de taller puede seguir leyendo el stock (lo necesita para qu
 
 ## 11. Aviso de "pedido nuevo" para almacén
 
-Cuando alguien guarda una solicitud desde la Hoja de pedido (botón "💾 Guardar y avisar a almacén"), pasan dos cosas:
+Cuando alguien guarda una solicitud desde la Hoja de pedido (botón "💾 Guardar y avisar a almacén"), pasan tres cosas:
 
 1. Se manda un correo (si tienes EmailJS configurado) con el detalle línea a línea.
-2. Aparece un aviso dentro de la propia app, arriba del todo, visible para cualquiera que la tenga abierta — con el nombre de quien lo pidió y cuántas líneas. Al pulsar sobre el aviso, te lleva directamente a esa orden/proyecto, en la pestaña de la Hoja de pedido.
+2. Aparece un aviso dentro de la propia app, arriba del todo, visible para cualquiera que la tenga abierta — con el nombre de quien lo pidió, si es interno o externo, y cuántas líneas. Al pulsar sobre el aviso, te lleva directamente a esa orden/proyecto, en la pestaña de la Hoja de pedido.
+3. Suena un aviso (dos pitidos) y, si has dado permiso de notificaciones al navegador, sale también una notificación del sistema — igual que la de cualquier otra app del móvil.
 
-**Limitación real:** este aviso en pantalla solo lo ve quien tenga la app abierta en ese momento (o la abra después, ya que queda guardado hasta que se marque como leído). No hay forma de mandar una notificación push al móvil si la app está cerrada — para eso haría falta configurar notificaciones push de verdad (Firebase Cloud Messaging), que es una pieza bastante más grande de montar. El correo sí llega siempre, esté la app abierta o no.
+**Limitaciones reales:**
+- Todo esto (aviso en pantalla, sonido, notificación del sistema) solo funciona con la app **abierta** en ese momento — aunque esté en segundo plano si la tienes instalada. No hay forma de que suene nada con la app completamente cerrada; para eso haría falta configurar notificaciones push de verdad (Firebase Cloud Messaging), que es una pieza bastante más grande de montar.
+- El sonido depende de que el navegador permita reproducir audio — la primera vez que se abre la app, hasta que no toques la pantalla una vez (cualquier toque), el navegador puede bloquear el sonido por su propia política contra el autoplay. A partir de esa primera interacción, ya suena con normalidad el resto de la sesión.
+- El correo sí llega siempre, esté la app abierta o no — es lo único 100% fiable de los tres avisos.
 
-## 12. Sobre el logo en los Excel exportados
+## 12. Interno / Externo
+
+Al crear una orden de Montaje/Venta o un proyecto, además del nombre y de quién pide el material, hay que indicar si es **Interno** o **Externo** — es obligatorio, igual que los otros dos campos. Se ve junto al nombre en el desplegable de selección, en la cabecera de la Hoja de pedido, y en el correo y aviso de pedido nuevo.
+
+## 13. Sobre el logo en los Excel exportados
 
 Las exportaciones a Excel (stock, movimientos, órdenes, entregas...) llevan **"TECNOMAT · Control de materiales"** como texto en la primera fila de cada hoja. No es el logo como imagen — la librería gratuita que usa la app para generar Excel (SheetJS) no permite insertar imágenes dentro del archivo, esa función es de pago en esa librería.
 
 Si en algún momento necesitas el logo real como imagen dentro del Excel, la vía sería partir de una plantilla `.xlsx` vuestra que ya tenga el logo puesto, y rellenar los datos dentro de esa plantilla en lugar de generar el archivo desde cero — es un planteamiento distinto y bastante más laborioso de montar.
 
+## 14. Rendimiento con inventarios grandes
 
+Con inventarios de miles de referencias, la lista de Almacén ahora solo pinta 80 a la vez, con un botón **"Cargar más"** al final para ver el resto — antes se pintaban todas de golpe, lo cual notaba lento con inventarios grandes (más aún con el estilo de esquina cortada del rediseño, que es más costoso de dibujar que un botón normal cuando se repite cientos de veces). Los botones de cada fila del stock (Cambiar ubicación, Categoría, Cantidad, Eliminar...) volvieron a un estilo más simple por el mismo motivo — el aspecto de "esquina cortada" se queda en las tarjetas, pestañas y botones principales, que aparecen pocas veces en pantalla, no en los que se repiten por cada artículo.
 
 
