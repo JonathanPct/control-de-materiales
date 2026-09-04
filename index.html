@@ -3666,7 +3666,11 @@
 // service worker registrado fuera del bloque de la app, para que un fallo no la tumbe
 if('serviceWorker' in navigator){
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js').then(reg => {
+    // "updateViaCache: 'none'" es la parte que faltaba — sin esto, el navegador podía
+    // comparar contra una copia de sw.js guardada en su propia caché HTTP en vez de
+    // pedir la de verdad al servidor, así que nunca veía que había cambiado nada y el
+    // aviso de actualización no saltaba nunca, por muchas veces que se subiera un sw.js nuevo
+    navigator.serviceWorker.register('sw.js', {updateViaCache: 'none'}).then(reg => {
       // por si ya había una versión nueva esperando desde antes de cargar esta página
       if(reg.waiting) showSwUpdateBanner(reg);
 
@@ -3681,6 +3685,11 @@ if('serviceWorker' in navigator){
           }
         });
       });
+
+      // fuerzo una comprobación nada más cargar, y luego cada 5 min por si la pestaña
+      // se queda abierta un rato — así no depende solo de cuándo decida mirar el navegador
+      reg.update();
+      setInterval(() => reg.update(), 5 * 60 * 1000);
     }).catch(() => {});
 
     // al activarse el service worker nuevo, recargo la página una vez

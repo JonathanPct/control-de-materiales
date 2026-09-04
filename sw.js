@@ -5,13 +5,16 @@
 // cuando suba un index.html nuevo, cambio este número de versión — eso es lo que
 // hace que el navegador detecte que hay un service worker distinto y arranque
 // el proceso de actualización (que luego el propio index.html avisa al usuario)
-const CACHE_NAME = 'tecnomat-materiales-v37';
+const CACHE_NAME = 'tecnomat-materiales-v38';
 const APP_SHELL = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', event => {
-  // cacheo el "esqueleto" de la app nada más instalarse
+  // cacheo el "esqueleto" de la app nada más instalarse — con {cache:'reload'} para
+  // que sea la copia de verdad del servidor, no una guardada en la caché HTTP del navegador
   event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL))
+    caches.open(CACHE_NAME).then(cache =>
+      Promise.all(APP_SHELL.map(url => fetch(url, {cache:'reload'}).then(resp => cache.put(url, resp))))
+    )
   );
   // ya NO hago self.skipWaiting() aquí — quiero que la versión nueva se quede
   // "esperando" hasta que el usuario pulse el aviso de "Actualizar ahora" en la
