@@ -3,67 +3,76 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#F7F4EC">
+<meta name="theme-color" content="#15171A">
 <link rel="manifest" href="manifest.json">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800&display=swap" rel="stylesheet">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <title>Control de Materiales</title>
 <style>
   :root{
-    --bg-base:#F7F4EC;
-    --bg-panel:#FFFFFF;
-    --bg-raised:#F3EFE3;
-    --bg-raised-2:#EAE4D3;
-    --accent:#D9A404;
-    --accent-dim:#8A6A0C;
-    --accent-soft:rgba(217,164,4,0.14);
-    --success:#1FA363;
-    --success-soft:rgba(31,163,99,0.12);
-    --danger:#E23B5D;
-    --danger-soft:rgba(226,59,93,0.12);
-    --text-primary:#181A1F;
-    --text-muted:#6B6558;
-    --text-faint:#9A9484;
+    --bg-base:#15171A;
+    --bg-panel:#1C1F24;
+    --bg-raised:#23272D;
+    --bg-raised-2:#2C3138;
+    --accent:#F0A800;
+    --accent-dim:#8A6000;
+    --accent-soft:rgba(240,168,0,0.16);
+    --success:#2FBF71;
+    --success-soft:rgba(47,191,113,0.14);
+    --danger:#FF5A46;
+    --danger-soft:rgba(255,90,70,0.14);
+    --text-primary:#EDEFF2;
+    --text-muted:#9198A1;
+    --text-faint:#5E656D;
     --lcd-green:#FFC800;
-    --border:#E3DDCB;
+    --border:#333A42;
   }
-  /* cada sección tiene su propio color de acento vivo, para saber de un vistazo en cuál estoy.
-     el de Almacén es el dorado de marca; el resto son variaciones vivas dentro de la misma
-     paleta, pensadas para leerse bien sobre fondo claro */
+  /* cada sección lleva un color con raíz en su propio mundo, no un capricho decorativo:
+     Almacén = el dorado real de marca; Montaje = óxido de señalización industrial;
+     Proyecto = azul de plano técnico; Pedido = rojo óxido de "pendiente de resolver" —
+     aquí todos suben de brillo para que destaquen (con resplandor) sobre el fondo oscuro */
   #app.mode-almacen{
-    --accent:#D9A404;
-    --accent-dim:#8A6A0C;
-    --accent-soft:rgba(217,164,4,0.14);
+    --accent:#F0A800;
+    --accent-dim:#8A6000;
+    --accent-soft:rgba(240,168,0,0.16);
   }
   #app.mode-montaje{
-    --accent:#D9611B;
-    --accent-dim:#8A3D10;
-    --accent-soft:rgba(217,97,27,0.14);
+    --accent:#FF6A32;
+    --accent-dim:#95340D;
+    --accent-soft:rgba(255,106,50,0.16);
   }
   #app.mode-proyecto{
-    --accent:#0E9488;
-    --accent-dim:#0A6259;
-    --accent-soft:rgba(14,148,136,0.14);
+    --accent:#3AA6FF;
+    --accent-dim:#155A8F;
+    --accent-soft:rgba(58,166,255,0.16);
   }
   #app.mode-pedido{
-    --accent:#7C3AED;
-    --accent-dim:#54219E;
-    --accent-soft:rgba(124,58,237,0.14);
+    --accent:#FF5449;
+    --accent-dim:#8F241C;
+    --accent-soft:rgba(255,84,73,0.16);
   }
   *{box-sizing:border-box;}
-  html,body{margin:0;padding:0;background:transparent; overflow-x:hidden; max-width:100%;}
+  html,body{margin:0;padding:0;min-height:100vh; overflow-x:hidden; max-width:100%; background:#0D0E10;}
   body{
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
     color:var(--text-primary);
     -webkit-font-smoothing:antialiased;
   }
   #app{
-    max-width:1180px;
+    max-width:1440px;
+    width:100%;
     margin:0 auto;
     padding:18px;
-    background:var(--bg-base);
+    background:
+      linear-gradient(180deg, #191C20, #14161A),
+      repeating-linear-gradient(0deg, rgba(255,255,255,0.02) 0, rgba(255,255,255,0.02) 1px, transparent 1px, transparent 32px),
+      repeating-linear-gradient(90deg, rgba(255,255,255,0.02) 0, rgba(255,255,255,0.02) 1px, transparent 1px, transparent 32px);
     border-radius:14px;
-    box-shadow:0 8px 40px rgba(20,15,5,0.06);
+    box-shadow:0 8px 40px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.04);
+    transition:box-shadow .3s;
   }
   .eyebrow{
     font-size:11px;
@@ -86,13 +95,14 @@
     display:block;
   }
   h1{
-    font-family:"Arial Black",Arial,sans-serif;
+    font-family:"Big Shoulders Display","Arial Narrow",Arial,sans-serif;
     text-transform:uppercase;
-    letter-spacing:.02em;
-    font-size:26px;
+    letter-spacing:.01em;
+    font-size:32px;
+    font-weight:800;
     margin:0 0 2px 0;
     color:var(--accent);
-
+    text-shadow:0 0 18px var(--accent-soft);
     transition:color .2s, text-shadow .2s;
   }
   .subtitle{color:var(--text-muted);font-size:13px;margin:0 0 18px 0;}
@@ -102,7 +112,8 @@
     display:flex;
     background:var(--bg-panel);
     border:1px solid var(--border);
-    border-radius:10px;
+    border-radius:0;
+    clip-path:polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%);
     padding:4px;
     gap:4px;
     margin-bottom:14px;
@@ -112,20 +123,22 @@
     background:transparent;
     border:none;
     color:var(--text-muted);
-    font-family:"Arial Black",Arial,sans-serif;
+    font-family:"Big Shoulders Display","Arial Narrow",Arial,sans-serif;
     text-transform:uppercase;
-    letter-spacing:.06em;
-    font-size:13px;
+    letter-spacing:.05em;
+    font-size:14px;
+    font-weight:800;
     padding:12px 8px;
-    border-radius:7px;
+    border-radius:0;
+    clip-path:polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
     cursor:pointer;
     transition:background .15s, color .15s, box-shadow .2s;
   }
   .mode-btn:hover{color:var(--text-primary);}
   .mode-btn.active{
     background:var(--accent);
-    color:#150A28;
-    box-shadow:0 2px 10px var(--accent-soft);
+    color:#14171A;
+    box-shadow:0 0 0 1px var(--accent-soft), 0 0 20px var(--accent-soft);
   }
 
   /* Project bar */
@@ -153,12 +166,14 @@
   .pill-current{
     background:var(--accent-soft);
     color:var(--accent);
+    border:1px solid var(--accent);
     font-size:11px;
     font-weight:700;
     text-transform:uppercase;
     letter-spacing:.06em;
-    padding:6px 10px;
-    border-radius:20px;
+    padding:6px 12px;
+    border-radius:0;
+    clip-path:polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
     white-space:nowrap;
   }
 
@@ -175,7 +190,8 @@
   .scanner-panel{
     background:var(--bg-panel);
     border:1px solid var(--border);
-    border-radius:10px;
+    border-radius:0;
+    clip-path:polygon(0 0, calc(100% - 18px) 0, 100% 18px, 100% 100%, 0 100%);
     padding:14px;
     margin-bottom:14px;
   }
@@ -194,7 +210,8 @@
     font-size:20px;
     letter-spacing:.05em;
     padding:14px 14px;
-    border-radius:8px;
+    border-radius:0 0 0 8px;
+    clip-path:polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%);
     caret-color:var(--lcd-green);
     outline:none;
   }
@@ -221,14 +238,18 @@
     background:var(--bg-raised);
     border:1px solid var(--border);
     color:var(--text-primary);
-    border-radius:8px;
+    border-radius:0;
+    clip-path:polygon(9px 0, 100% 0, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%, 0 9px);
     padding:11px 16px;
     min-height:42px;
     font-size:13.5px;
     cursor:pointer;
     font-weight:600;
+    filter:drop-shadow(0 2px 0 var(--border));
+    transition:transform .08s, filter .08s, background .15s;
   }
   .cam-btn:hover{background:var(--bg-raised-2);}
+  .cam-btn:active{transform:translateY(2px); filter:none;}
   .scan-hint{color:var(--text-faint); font-size:11.5px; margin-top:8px;}
 
   .unknown-box{
@@ -269,22 +290,27 @@
   .ticket{
     background:var(--bg-panel);
     border:1px solid var(--border);
-    border-radius:10px;
+    border-left:5px solid var(--accent);
+    border-radius:0 0 10px 0;
+    clip-path:polygon(0 0, calc(100% - 18px) 0, 100% 18px, 100% 100%, 0 100%);
     overflow:hidden;
-    box-shadow:0 4px 20px rgba(20,15,5,0.06);
+    filter:drop-shadow(0 4px 18px rgba(0,0,0,0.35)) drop-shadow(-4px 0 16px var(--accent-soft));
+    transition:border-color .2s, filter .3s;
   }
   .ticket-header{
     display:flex;
     justify-content:space-between;
     align-items:center;
     padding:10px 14px;
-    border-bottom:1px solid var(--border);
+    border-bottom:1px dashed var(--border);
+    background:var(--accent-soft);
   }
   .ticket-title{
-    font-family:"Arial Black",Arial,sans-serif;
+    font-family:"Big Shoulders Display","Arial Narrow",Arial,sans-serif;
     text-transform:uppercase;
-    font-size:12px;
-    letter-spacing:.08em;
+    font-size:13px;
+    font-weight:700;
+    letter-spacing:.07em;
     color:var(--text-muted);
   }
   .ticket-body{max-height:520px; overflow-y:auto;}
@@ -365,8 +391,10 @@
     font-family:-apple-system,sans-serif;
     font-size:11.5px;
     font-weight:700;
-    padding:6px 9px;
-    border-radius:6px;
+    padding:9px 14px;
+    min-height:38px;
+    border-radius:0;
+    clip-path:polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px));
     cursor:pointer;
     white-space:nowrap;
   }
@@ -398,10 +426,11 @@
   .panel{
     background:var(--bg-panel);
     border:1px solid var(--border);
-    border-radius:10px;
+    border-radius:0 0 10px 0;
+    clip-path:polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 0 100%);
     padding:14px;
     margin-bottom:14px;
-    box-shadow:0 4px 16px rgba(20,15,5,0.05);
+    filter:drop-shadow(0 4px 14px rgba(0,0,0,0.3));
   }
 
   /* Stock view */
@@ -422,7 +451,8 @@
     color:var(--text-muted);
     background:var(--bg-raised);
     padding:4px 8px;
-    border-radius:6px;
+    border-radius:0;
+    clip-path:polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
     white-space:nowrap;
   }
   .stock-loc.unset{color:var(--text-faint); font-style:italic;}
@@ -431,26 +461,30 @@
     font-weight:700;
     font-size:15px;
     padding:4px 10px;
-    border-radius:6px;
+    border-radius:0;
+    clip-path:polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
     white-space:nowrap;
   }
   .stock-qty.ok{background:var(--success-soft); color:var(--success);}
   .stock-qty.low{background:var(--danger-soft); color:var(--danger);}
 
   .manual-stock-form{display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;}
-  .manual-stock-form input{
+  .manual-stock-form input, .manual-stock-form select{
     background:var(--bg-raised);
     border:1px solid var(--border);
     color:var(--text-primary);
     padding:9px 10px;
     border-radius:7px;
     font-size:13px;
+    flex:1;
+    min-width:130px;
   }
-  .manual-stock-form input[name="mCode"]{flex:1; min-width:90px;}
-  .manual-stock-form input[name="mDesc"]{flex:2; min-width:140px;}
-  .manual-stock-form input[name="mRef"]{flex:1.2; min-width:110px;}
-  .manual-stock-form input[name="mLoc"]{flex:1.4; min-width:130px;}
-  .manual-stock-form input[name="mQty"]{width:80px;}
+  .manual-stock-form input[name="mCode"]{flex:1; min-width:100px;}
+  .manual-stock-form input[name="mDesc"]{flex:2; min-width:160px;}
+  .manual-stock-form input[name="mRef"]{flex:1.2; min-width:130px;}
+  .manual-stock-form input[name="mLoc"]{flex:1.4; min-width:150px;}
+  .manual-stock-form input[name="mQty"]{flex:none; width:80px; min-width:70px;}
+  .manual-stock-form select{flex:1.2; min-width:150px;}
 
   .movement-row{
     display:grid;
@@ -467,21 +501,24 @@
   .movement-row .m-origin{color:var(--text-faint); font-size:11px; grid-column:1/3;}
   .tag-entrada, .tag-salida, .tag-eliminado{
     padding:2px 7px;
-    border-radius:5px;
+    border-radius:3px;
     font-size:10px;
-    font-weight:700;
+    font-weight:800;
+    letter-spacing:.04em;
     text-transform:uppercase;
     white-space:nowrap;
+    border:1px dashed currentColor;
   }
   .tag-entrada{background:var(--success-soft); color:var(--success);}
   .tag-salida{background:var(--danger-soft); color:var(--danger);}
   .tag-eliminado{background:var(--bg-raised-2); color:var(--text-muted);}
 
   .panel-title{
-    font-family:"Arial Black",Arial,sans-serif;
+    font-family:"Big Shoulders Display","Arial Narrow",Arial,sans-serif;
     text-transform:uppercase;
-    font-size:11.5px;
-    letter-spacing:.07em;
+    font-size:12.5px;
+    font-weight:700;
+    letter-spacing:.06em;
     color:var(--text-muted);
     margin:0 0 10px 0;
   }
@@ -495,13 +532,15 @@
     font-size:13px;
     font-weight:600;
     padding:10px;
-    border-radius:8px;
+    border-radius:0;
+    clip-path:polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
     cursor:pointer;
     margin-bottom:8px;
   }
   .btn:hover{background:var(--bg-raised-2);}
-  .btn.primary{background:var(--accent); color:#181A1F; border-color:var(--accent); box-shadow:0 2px 10px var(--accent-soft); font-weight:700;}
-  .btn.primary:hover{filter:brightness(1.08); box-shadow:0 4px 16px var(--accent-soft);}
+  .btn.primary{background:var(--accent); color:#181A1F; border-color:var(--accent); font-weight:700; transition:transform .08s, filter .08s; filter:drop-shadow(0 3px 0 var(--accent-dim)) drop-shadow(0 4px 10px var(--accent-soft));}
+  .btn.primary:hover{filter:drop-shadow(0 3px 0 var(--accent-dim)) drop-shadow(0 4px 10px var(--accent-soft)) brightness(1.06);}
+  .btn.primary:active{transform:translateY(2px); filter:drop-shadow(0 1px 0 var(--accent-dim));}
   .btn.ghost-danger{color:var(--danger); border-color:var(--danger); background:transparent;}
   .btn.ghost-danger:hover{background:var(--danger-soft);}
 
@@ -520,9 +559,10 @@
     width:100%; max-width:460px;
     background:var(--bg-panel);
     border:1px solid var(--border);
-    border-radius:14px;
+    border-radius:0;
+    clip-path:polygon(0 0, calc(100% - 22px) 0, 100% 22px, 100% 100%, 0 100%);
     padding:20px;
-    box-shadow:0 12px 40px rgba(0,0,0,0.3);
+    filter:drop-shadow(0 12px 32px rgba(0,0,0,0.3));
   }
   .signature-items{
     max-height:140px; overflow-y:auto;
@@ -603,7 +643,8 @@
     max-width:360px;
     background:var(--bg-panel);
     border:1px solid var(--border);
-    border-radius:14px;
+    border-radius:0;
+    clip-path:polygon(0 0, calc(100% - 22px) 0, 100% 22px, 100% 100%, 0 100%);
     padding:24px;
   }
   #loginForm{display:flex; flex-direction:column; gap:10px;}
@@ -621,6 +662,12 @@
   .backup-row .btn{flex:1; min-width:120px;}
 
   /* ---------- Responsive (mobile) ---------- */
+  /* ---------- Responsive (pantallas medianas: portátiles, ventanas no maximizadas) ---------- */
+  @media (max-width: 1100px){
+    .cols{flex-direction:column;}
+    .col-main, .col-side{width:100%; min-width:0;}
+  }
+
   @media (max-width: 760px){
     body{padding:0;}
     #app{padding:12px; border-radius:0; max-width:100%;}
@@ -690,7 +737,7 @@
   </div>
   <h1>Control de materiales</h1>
   <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px; flex-wrap:wrap;">
-    <p class="subtitle" style="margin:0;">Escanea el código de barras generado desde Excel para registrar cada material.</p>
+    <p class="subtitle" style="margin:0;">Escanea el código de barras para registrar cada material.</p>
     <div id="logoutArea"></div>
   </div>
   <div class="autosave-note" id="autosaveNote"><span class="autosave-dot"></span> Todo se guarda automáticamente en este dispositivo — stock, montaje y proyectos.</div>
@@ -917,6 +964,7 @@
   let catalogSearchTerm = '';
   let globalSearchTerm = ''; // el buscador de arriba de todo, funciona en cualquier sección
   let selectedStockIds = new Set(); // referencias marcadas en Almacén para acciones en bloque
+  let newGroupDraft = {nombre:'', requester:'', tipo:''}; // lo que se va escribiendo al crear una orden/proyecto, para que no se borre con un repintado de fondo
   let cablesSearchTerm = ''; // buscador dentro del panel de Cables y mangueras
   const CATEGORIAS_STOCK = ['Material eléctrico', 'Material hidráulico', 'Manguera o cable', 'Artículos para cuadros'];
   let listView = 'servido'; // 'servido' | 'devuelto' — which sub-list is shown in Montaje/Proyecto
@@ -1756,7 +1804,7 @@
         }
       }
       $('#scanInput').value = '';
-      $('#scanInput').focus();
+      $('#scanInput').focus({preventScroll: true});
       return;
     }
 
@@ -1764,7 +1812,7 @@
       pendingUnknownCode = null;
       proceedWithItem(matches[0]);
       $('#scanInput').value = '';
-      $('#scanInput').focus();
+      $('#scanInput').focus({preventScroll: true});
       return;
     }
 
@@ -1773,7 +1821,7 @@
     pendingCodeChoice = {code, matches: matches.map(m => m.id)};
     renderScannerZone();
     $('#scanInput').value = '';
-    $('#scanInput').focus();
+    $('#scanInput').focus({preventScroll: true});
   }
 
   function confirmUnknown(){
@@ -1790,7 +1838,7 @@
     const item = createCatalogItem(pendingUnknownCode.code, desc, location, categoria, referencia);
     pendingUnknownCode = null;
     proceedWithItem(item); // esto ya pregunta la cantidad y hace la entrada correspondiente
-    $('#scanInput').focus();
+    $('#scanInput').focus({preventScroll: true});
   }
 
   function returnEntry(id, qtyToReturn){
@@ -2570,7 +2618,7 @@
   function renderModeBar(){
     const bar = $('#modeBar');
     const esTaller = getUserRole() === 'taller';
-    const modes = [['montaje','Montaje/Venta'],['almacen','Almacén (Stock)'],['proyecto','Proyecto'],['pedido','Pedido']]
+    const modes = [['montaje','🔧 Montaje/Venta'],['almacen','📦 Almacén (Stock)'],['proyecto','📁 Proyecto'],['pedido','🛒 Pedido']]
       .filter(([k]) => !(esTaller && k==='almacen')); // taller no ve Almacén, ni falta que le hace
     bar.innerHTML = modes.map(([k,label]) =>
       `<button class="mode-btn ${state.mode===k?'active':''}" data-mode="${k}">${label}</button>`
@@ -2601,12 +2649,12 @@
           <option value="">${selectLabel}</option>
           ${state.groups[kind].map(g=>`<option value="${esc(g.name)}" ${g.name===currentName?'selected':''}>${esc(g.name)}${g.tipo?' ['+esc(g.tipo)+']':''}${g.status==='finalizado'?' (Finalizado)':''}</option>`).join('')}
         </select>
-        <input type="text" id="newGroupInput" placeholder="${newLabel}">
-        <input type="text" id="newGroupRequester" placeholder="¿Quién pide el material?">
+        <input type="text" id="newGroupInput" placeholder="${newLabel}" value="${esc(newGroupDraft.nombre)}">
+        <input type="text" id="newGroupRequester" placeholder="¿Quién pide el material?" value="${esc(newGroupDraft.requester)}">
         <select id="newGroupTipo">
-          <option value="">¿Interno o externo?</option>
-          <option value="Interno">Interno</option>
-          <option value="Externo">Externo</option>
+          <option value="" ${!newGroupDraft.tipo?'selected':''}>¿Interno o externo?</option>
+          <option value="Interno" ${newGroupDraft.tipo==='Interno'?'selected':''}>Interno</option>
+          <option value="Externo" ${newGroupDraft.tipo==='Externo'?'selected':''}>Externo</option>
         </select>
         <button class="cam-btn" id="createGroupBtn">+ Crear</button>
         ${current?`
@@ -2618,6 +2666,9 @@
       </div>
     `;
     $('#groupSelect').addEventListener('change', e => selectGroup(kind, e.target.value));
+    $('#newGroupInput').addEventListener('input', e => { newGroupDraft.nombre = e.target.value; });
+    $('#newGroupRequester').addEventListener('input', e => { newGroupDraft.requester = e.target.value; });
+    $('#newGroupTipo').addEventListener('change', e => { newGroupDraft.tipo = e.target.value; });
     const tryCreate = () => {
       const nombre = $('#newGroupInput').value;
       const requester = $('#newGroupRequester').value.trim();
@@ -2625,6 +2676,7 @@
       if(!nombre.trim()){ showStatus('Escribe el nombre de '+(kind==='montaje'?'la orden':'el proyecto')+'.'); return; }
       if(!requester){ showStatus('Indica quién pide el material para esta '+(kind==='montaje'?'orden':'este proyecto')+' — es obligatorio.'); return; }
       if(!tipo){ showStatus('Indica si el material es interno o externo — es obligatorio.'); return; }
+      newGroupDraft = {nombre:'', requester:'', tipo:''}; // borrador limpio, ya se ha creado
       createGroup(kind, nombre, requester, tipo);
     };
     $('#createGroupBtn').addEventListener('click', tryCreate);
@@ -2653,10 +2705,10 @@
       : state.mode==='pedido' ? 'Escanea o introduce el código para añadirlo al pedido…'
       : 'Escanea o introduce el código para añadirlo a la solicitud…';
     const hint = state.mode==='almacen'
-      ? 'Cada código escaneado aquí suma unidades al stock (entrada). Si el material no existe, se pedirá una referencia.'
+      ? 'Suma al stock. Material nuevo: pide referencia.'
       : state.mode==='pedido'
-      ? 'Cada código añade esa cantidad al pedido — esto no descuenta stock, es solo un listado para pedir y mandar por correo.'
-      : 'Esto NO descuenta stock todavía — se queda en la solicitud pendiente hasta que se prepare la recogida y se firme.';
+      ? 'Añade al pedido — no descuenta stock.'
+      : 'Va a la solicitud pendiente — no descuenta stock aún.';
     const submitLabel = state.mode==='almacen' ? '+ Entrada' : state.mode==='pedido' ? '+ Añadir' : '+ Solicitar';
     zone.innerHTML = `
       <div class="scanner-panel">
@@ -2671,7 +2723,7 @@
           <button class="cam-btn" id="camBtn" ${disabled?'disabled':''}>📷 Cámara</button>
           <button class="btn primary" id="scanSubmitBtn" ${disabled?'disabled':''}>${submitLabel}</button>
         </div>
-        <div class="scan-hint">${hint} · La cantidad se pide justo después de leer el código. Funciona con lector USB/Bluetooth (Enter), cámara del móvil, o escribiendo el código a mano.</div>
+        <div class="scan-hint">${hint}</div>
         ${pendingUnknownCode ? `
           <div class="unknown-box">
             <span>Nueva referencia para el código <strong>${esc(pendingUnknownCode.code)}</strong>:</span>
@@ -2711,7 +2763,7 @@
         if(tieneNombre && scanEl && scanEl.disabled && !groupFinalizado){
           scanEl.disabled = false; camEl.disabled = false; submitEl.disabled = false;
           scanEl.placeholder = 'Escanea o introduce el código para añadirlo a la solicitud…';
-          scanEl.focus();
+          scanEl.focus({preventScroll: true});
         }else if(!tieneNombre && scanEl){
           scanEl.disabled = true; camEl.disabled = true; submitEl.disabled = true;
           scanEl.placeholder = 'Rellena "¿Quién lo pide?" arriba antes de escanear…';
@@ -2732,7 +2784,15 @@
           handleScan(val);
         }
       });
-      if(!disabled) input.focus();
+      // se enfoca siempre (hace falta para que la pistola de escanear funcione al
+      // cambiar de sección) pero marcándolo "readonly" un instante evita que el
+      // teclado en pantalla salte en móvil — se quita enseguida, antes de que dé
+      // tiempo a escanear nada, así que la pistola sigue funcionando igual
+      if(!disabled){
+        input.setAttribute('readonly', 'readonly');
+        input.focus({preventScroll: true});
+        setTimeout(()=>{ input.removeAttribute('readonly'); }, 50);
+      }
     }
     const submitBtn = $('#scanSubmitBtn');
     if(submitBtn) submitBtn.addEventListener('click', ()=>{
@@ -2748,7 +2808,7 @@
       $('#unknownDesc').addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); confirmUnknown(); }});
       $('#unknownRef').addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); confirmUnknown(); }});
       $('#unknownLoc').addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); confirmUnknown(); }});
-      $('#unknownDesc').focus();
+      $('#unknownDesc').focus({preventScroll: true});
     }
     if(pendingCodeChoice){
       zone.querySelectorAll('[data-choice-item]').forEach(btn=>{
@@ -2833,7 +2893,7 @@
           <input type="text" name="mRef" id="mRef" placeholder="Referencia (opcional)">
           <input type="text" name="mLoc" id="mLoc" placeholder="Ubicación (ej. Pasillo 3 - B2)">
           <input type="number" name="mQty" id="mQty" placeholder="Cant." min="1" value="1">
-          <select id="mCategoria" style="background:var(--bg-raised); border:1px solid var(--border); color:var(--text-primary); padding:9px 10px; border-radius:7px; font-size:13px;">
+          <select id="mCategoria">
             <option value="">Categoría…</option>
             ${CATEGORIAS_STOCK.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}
           </select>
@@ -2925,7 +2985,7 @@
     $('#addManualBtn').addEventListener('click', ()=>{
       addManualStock($('#mCode').value, $('#mDesc').value, $('#mQty').value, $('#mLoc').value, $('#mCategoria').value, $('#mRef').value);
       $('#mCode').value=''; $('#mDesc').value=''; $('#mRef').value=''; $('#mLoc').value=''; $('#mQty').value='1'; $('#mCategoria').value='';
-      $('#mCode').focus();
+      $('#mCode').focus({preventScroll: true});
     });
 
     $('#addBobinaBtn').addEventListener('click', ()=>{
@@ -2939,7 +2999,7 @@
         const match = findInCatalog(bCodigoInput.value.trim());
         if(match && !$('#bDesc').value.trim()) $('#bDesc').value = match.desc;
       });
-      bCodigoInput.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); bCodigoInput.dispatchEvent(new Event('change')); $('#bMatricula').focus(); }});
+      bCodigoInput.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); bCodigoInput.dispatchEvent(new Event('change')); $('#bMatricula').focus({preventScroll: true}); }});
     }
     const bCamBtn = $('#bCamBtn');
     if(bCamBtn) bCamBtn.addEventListener('click', ()=> openCamera(code=>{
@@ -2998,7 +3058,7 @@
           <input type="date" id="bFecha" style="flex:1; min-width:150px;">
           <button class="cam-btn" id="addBobinaBtn">+ Registrar bobina</button>
         </div>
-        <div class="scan-hint" style="margin-top:6px;">El código puede escanearse con lector USB/Bluetooth (escribe y pulsa Enter en el campo) o con la cámara. Si ya existe en el stock, la referencia se rellena sola.</div>
+        <div class="scan-hint" style="margin-top:6px;">Si el código ya existe en stock, la referencia se rellena sola.</div>
       </div>
 
       <div class="ticket" style="margin-top:14px;">
@@ -3197,8 +3257,8 @@
             <button class="cam-btn" id="addFreeTextBtn" style="margin-top:8px;">+ No sé la referencia — escribir qué hace falta</button>
             ${target.pendiente.items.length ? `
               <p style="font-size:11px; color:var(--text-faint); margin:10px 0 0 0;">${esTaller
-                ? 'Rellena la solicitud y pulsa "Guardar" — almacén se encarga de preparar y firmar la recogida.'
-                : 'Marcar "Recibido" en una línea pendiente abre la firma de recogida para toda la solicitud (así el stock solo se descuenta cuando se firma de verdad).'}</p>
+                ? 'Rellena y pulsa "Guardar" — almacén prepara y firma la recogida.'
+                : '"Recibido" abre la firma de recogida de toda la solicitud.'}</p>
               <button class="btn primary" id="saveHojaPedidoBtn" style="margin-top:8px;">💾 Guardar y avisar a almacén</button>
             ` : ''}
             ` : '<div class="empty-state">Todavía no hay nada pedido ni servido en esta orden/proyecto.</div>'}
@@ -3339,7 +3399,7 @@
 
         <div class="panel" style="border-color:var(--danger);">
           <p class="panel-title" style="color:var(--danger);">Sobrescribir todo el stock</p>
-          <p style="font-size:11.5px; color:var(--text-faint); margin:0 0 8px 0;">Sube tu Excel de inventario actualizado y el stock quedará EXACTAMENTE como ese archivo — las cantidades se ajustan a lo que ponga, y cualquier referencia que ya tuvieras y no esté en el archivo se elimina.</p>
+          <p style="font-size:11.5px; color:var(--text-faint); margin:0 0 8px 0;">El stock queda igual que el Excel: cantidades exactas, borra lo que no esté.</p>
           <label class="btn ghost-danger" style="text-align:center; display:block;">
             🔄 Sobrescribir con este Excel
             <input type="file" id="overwriteCatalogFile" accept=".xlsx,.xls,.csv" style="display:none;">
@@ -3448,7 +3508,7 @@
           <p class="panel-title">Enviar</p>
           <button class="btn primary" id="sendPedidoBtn">📧 Enviar pedido por correo</button>
           <button class="btn ghost-danger" id="clearPedidoBtn">Vaciar pedido</button>
-          <p style="font-size:11.5px; color:var(--text-faint); margin-top:8px;">Se envía al correo configurado en Almacén → panel "Avisos"${state.settings.emailDestino ? ' ('+state.settings.emailDestino+')' : ' — todavía no has puesto ninguno'}.</p>
+          <p style="font-size:11.5px; color:var(--text-faint); margin-top:8px;">${state.settings.emailDestino ? 'Se envía a '+state.settings.emailDestino+'.' : 'Falta configurar el correo en Almacén → Avisos.'}</p>
         </div>
       `;
       $('#sendPedidoBtn').addEventListener('click', sendPedidoEmail);
@@ -3504,8 +3564,7 @@
           <input type="file" id="orderFile" accept=".xlsx,.xls,.csv,.pdf" style="display:none;" ${target?'':'disabled'}>
         </label>
         <p style="font-size:11.5px; color:var(--text-faint); margin-top:6px;">
-          Busca cada línea por código o por referencia en el stock. Si no existe, la da de alta como plantilla nueva (sin stock real) para completarla luego.
-          El PDF es "mejor esfuerzo" — depende de cómo esté maquetado; si falla, prueba con el Excel/CSV original.
+          Busca por código o referencia. El PDF es "mejor esfuerzo" — si falla, usa el Excel/CSV.
         </p>
       </div>
 
