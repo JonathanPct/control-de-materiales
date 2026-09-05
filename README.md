@@ -240,4 +240,28 @@ Si en algún momento necesitas el logo real como imagen dentro del Excel, la ví
 
 Con inventarios de miles de referencias, la lista de Almacén ahora solo pinta 80 a la vez, con un botón **"Cargar más"** al final para ver el resto — antes se pintaban todas de golpe, lo cual notaba lento con inventarios grandes (más aún con el estilo de esquina cortada del rediseño, que es más costoso de dibujar que un botón normal cuando se repite cientos de veces). Los botones de cada fila del stock (Cambiar ubicación, Categoría, Cantidad, Eliminar...) volvieron a un estilo más simple por el mismo motivo — el aspecto de "esquina cortada" se queda en las tarjetas, pestañas y botones principales, que aparecen pocas veces en pantalla, no en los que se repiten por cada artículo.
 
+## 15. Colores pensados para daltonismo
 
+Ningún sitio de la app depende solo del color para decir algo — siempre va acompañado de texto, número o icono (por ejemplo, la cantidad de stock se ve como número real, no solo como un color). Aun así, algunos colores estaban demasiado próximos entre sí para el daltonismo rojo-verde (el más común, ~8% de los hombres), así que se separaron:
+
+- **Pedido** pasó de rojo a **magenta**, para no chocar con el rojo de "stock bajo".
+- **Stock bajo / stock OK** pasaron de rojo/verde puros a **rosa/verde azulado (teal)** — mucho más distinguibles entre sí bajo daltonismo rojo-verde que el rojo y el verde clásicos.
+- El resto de colores (dorado de Almacén, naranja de Montaje, azul de Proyecto) se mantienen, ya estaban razonablemente separados.
+
+## 16. Búsqueda más fluida, trazabilidad, valorización y filtros en Almacén
+
+- **Búsqueda con pausa (debounce)**: en Almacén, el buscador global y el catálogo, ahora se espera una fracción de segundo tras dejar de teclear antes de filtrar, en vez de recalcular en cada letra — se nota sobre todo con inventarios grandes.
+- **Quién hizo cada cosa**: cada movimiento de stock, cada eliminación y cada entrega firmada guarda el email de la cuenta que lo hizo (si hay login con Firebase). Se ve en "Últimos movimientos" y en la exportación a Excel.
+- **Valorización de inventario**: al importar un Excel con columna "Coste" (o "Precio"), se reconoce sola. Hay un botón "Coste" en cada artículo para ponerlo o cambiarlo a mano. El resumen de Almacén muestra el valor total del inventario, y la exportación a Excel incluye coste unitario y valor total por línea.
+- **Filtros en Almacén**: por categoría, solo stock bajo (0) o solo sin ubicar — combinables entre sí y con la búsqueda de texto, con un botón para quitarlos todos de golpe.
+
+## 17. Ubicaciones, carga más rápida y tema claro/oscuro
+
+- **Ubicaciones estructuradas**: en Almacén → panel "Ubicaciones" se puede mantener una lista (añadir/quitar). Sigue siendo texto libre en el material — esto solo ofrece autocompletado al escribir, para evitar erratas como "Pasillo 3" y "pasillo3" siendo cosas distintas sin querer.
+- **Arranque más rápido**: las librerías de Excel y PDF (las más pesadas) ahora se cargan en paralelo con el resto de la página en vez de bloquear el arranque — no hace falta esperarlas para empezar a usar la app, solo se necesitan cuando de verdad exportas/importas algo.
+- **Tema claro/oscuro**: botón junto a "Cerrar sesión" (arriba a la derecha) para cambiar entre los dos. Es una preferencia de cada dispositivo/navegador, no se sincroniza entre aparatos como el resto de los datos — cada quien puede tener el suyo.
+
+## 18. Tour inicial, botón de Ayuda, e impresión de etiquetas
+
+- **Corregido un fallo real**: el tour inicial y el botón "Ayuda" ya estaban programados pero nunca se activaban — les faltaba la conexión final. Ahora sí: quien entra por primera vez ve el repaso corto de la app automáticamente, y el botón "Ayuda" (junto al de tema) lo vuelve a abrir cuando quieras.
+- **Imprimir etiqueta de código de barras**: botón "Etiqueta" en cada artículo del stock. Genera el código de barras (formato CODE128, a partir del propio Código) y abre el diálogo de impresión del navegador, mostrando solo la etiqueta — el resto de la pantalla no sale en el papel. La librería que dibuja el código de barras solo se descarga la primera vez que se usa este botón, no antes.

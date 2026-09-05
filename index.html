@@ -7,7 +7,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800&family=Rajdhani:wght@400;600&display=swap" rel="stylesheet">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <title>Control de Materiales</title>
@@ -20,10 +20,10 @@
     --accent:#F0A800;
     --accent-dim:#8A6000;
     --accent-soft:rgba(240,168,0,0.16);
-    --success:#2FBF71;
-    --success-soft:rgba(47,191,113,0.14);
-    --danger:#FF5A46;
-    --danger-soft:rgba(255,90,70,0.14);
+    --success:#1FBE8F;
+    --success-soft:rgba(31,190,143,0.14);
+    --danger:#E14C6B;
+    --danger-soft:rgba(225,76,107,0.14);
     --text-primary:#EDEFF2;
     --text-muted:#9198A1;
     --text-faint:#5E656D;
@@ -32,8 +32,8 @@
   }
   /* cada sección lleva un color con raíz en su propio mundo, no un capricho decorativo:
      Almacén = el dorado real de marca; Montaje = óxido de señalización industrial;
-     Proyecto = azul de plano técnico; Pedido = rojo óxido de "pendiente de resolver" —
-     aquí todos suben de brillo para que destaquen (con resplandor) sobre el fondo oscuro */
+     Proyecto = azul de plano técnico; Pedido = magenta — a propósito distinto del rojo/naranja
+     de los demás, para que quien tenga daltonismo rojo-verde (el más común) los distinga bien */
   #app.mode-almacen{
     --accent:#F0A800;
     --accent-dim:#8A6000;
@@ -50,14 +50,60 @@
     --accent-soft:rgba(58,166,255,0.16);
   }
   #app.mode-pedido{
-    --accent:#FF5449;
-    --accent-dim:#8F241C;
-    --accent-soft:rgba(255,84,73,0.16);
+    --accent:#C44FD1;
+    --accent-dim:#7A2B85;
+    --accent-soft:rgba(196,79,209,0.16);
+  }
+
+  /* tema claro — mismos colores por sección, ajustados para leerse bien sobre fondo claro.
+     se declara también en html.tema-claro para que la pantalla de login (que está fuera
+     de #app) también lo respete, no solo la app en sí */
+  html.tema-claro, #app.tema-claro{
+    --bg-base:#F1EFE8;
+    --bg-panel:#FFFFFF;
+    --bg-raised:#EAE6DA;
+    --bg-raised-2:#DFDACB;
+    --border:#DDD6C4;
+    --text-primary:#22201B;
+    --text-muted:#6B6558;
+    --text-faint:#9A9484;
+    --success:#0F8F68;
+    --success-soft:rgba(15,143,104,0.12);
+    --danger:#C23A57;
+    --danger-soft:rgba(194,58,87,0.12);
+  }
+  #app.tema-claro.mode-almacen{
+    --accent:#C68A00; --accent-dim:#7A5600; --accent-soft:rgba(198,138,0,0.14);
+  }
+  #app.tema-claro.mode-montaje{
+    --accent:#B5481A; --accent-dim:#722D0F; --accent-soft:rgba(181,72,26,0.14);
+  }
+  #app.tema-claro.mode-proyecto{
+    --accent:#1B5E8C; --accent-dim:#123E5C; --accent-soft:rgba(27,94,140,0.14);
+  }
+  #app.tema-claro.mode-pedido{
+    --accent:#9C3FA8; --accent-dim:#642769; --accent-soft:rgba(156,63,168,0.14);
   }
   *{box-sizing:border-box;}
+
+  /* toque de profundidad + resalte de color al enfocar, para todos los campos de texto
+     de la app — solo afecta al campo activo en cada momento, nunca a muchos a la vez,
+     así que no supone ningún coste de rendimiento por grande que sea una lista */
+  input[type="text"], input[type="number"], input[type="date"], input[type="email"],
+  input[type="password"], select, textarea{
+    box-shadow:inset 0 1px 3px rgba(0,0,0,0.25);
+    transition:border-color .15s, box-shadow .15s;
+  }
+  input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus,
+  input[type="email"]:focus, input[type="password"]:focus, select:focus, textarea:focus{
+    outline:none;
+    border-color:var(--accent);
+    box-shadow:inset 0 1px 3px rgba(0,0,0,0.25), 0 0 0 3px var(--accent-soft);
+  }
   html,body{margin:0;padding:0;min-height:100vh; overflow-x:hidden; max-width:100%; background:#0D0E10;}
+  html.tema-claro,html.tema-claro body{background:#E9E5D8;}
   body{
-    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-family:"Rajdhani",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
     color:var(--text-primary);
     -webkit-font-smoothing:antialiased;
   }
@@ -73,7 +119,13 @@
     border-radius:0;
     box-shadow:none;
     min-height:100vh;
-    transition:box-shadow .3s;
+    transition:box-shadow .3s, background .2s;
+  }
+  #app.tema-claro{
+    background:
+      linear-gradient(180deg, #F4F2EA, #EDEAE0),
+      repeating-linear-gradient(0deg, rgba(34,32,27,0.035) 0, rgba(34,32,27,0.035) 1px, transparent 1px, transparent 32px),
+      repeating-linear-gradient(90deg, rgba(34,32,27,0.035) 0, rgba(34,32,27,0.035) 1px, transparent 1px, transparent 32px);
   }
   .eyebrow{
     font-size:11px;
@@ -361,7 +413,7 @@
   .ticket-row:last-child{border-bottom:none;}
   .row-main{grid-column:1/2;}
   .row-code{color:var(--accent); font-weight:700; font-size:13px; word-break:break-word;}
-  .row-desc{color:var(--text-primary); font-size:13px; margin-top:2px; font-family:-apple-system,sans-serif; word-break:break-word;}
+  .row-desc{color:var(--text-primary); font-size:13px; margin-top:2px; word-break:break-word;}
   .row-ts{color:var(--text-faint); font-size:11px; margin-top:2px;}
   .row-qty{
     color:var(--text-primary);
@@ -386,7 +438,6 @@
     background:var(--danger-soft);
     border:1px solid var(--danger);
     color:var(--danger);
-    font-family:-apple-system,sans-serif;
     font-size:11.5px;
     font-weight:700;
     padding:9px 14px;
@@ -464,7 +515,7 @@
   .stock-qty.low{background:var(--danger-soft); color:var(--danger);}
 
   .manual-stock-form{display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;}
-  .manual-stock-form input, .manual-stock-form select{
+  .manual-stock-form input:not([type="checkbox"]), .manual-stock-form select{
     background:var(--bg-raised);
     border:1px solid var(--border);
     color:var(--text-primary);
@@ -474,6 +525,7 @@
     flex:1;
     min-width:130px;
   }
+  .manual-stock-form input[type="checkbox"]{flex:none; width:16px; height:16px; min-width:0;}
   .manual-stock-form input[name="mCode"]{flex:1; min-width:100px;}
   .manual-stock-form input[name="mDesc"]{flex:2; min-width:160px;}
   .manual-stock-form input[name="mRef"]{flex:1.2; min-width:130px;}
@@ -663,6 +715,19 @@
     .col-main, .col-side{width:100%; min-width:0;}
   }
 
+  #etiquetaImprimir{display:none;}
+  @media print{
+    body *{visibility:hidden;}
+    #etiquetaImprimir, #etiquetaImprimir *{visibility:visible;}
+    #etiquetaImprimir{
+      display:block !important;
+      position:fixed; top:0; left:0; width:100%;
+      padding:14px; text-align:center;
+    }
+    .etiqueta-code svg{width:220px; height:auto;}
+    .etiqueta-desc{font-family:-apple-system,sans-serif; font-size:12px; margin-top:4px; color:#000;}
+  }
+
   @media (max-width: 760px){
     body{padding:0;}
     #app{padding:12px; border-radius:0; max-width:100%;}
@@ -693,7 +758,8 @@
 
     .movement-row{font-size:11.5px;}
     .manual-stock-form{flex-direction:column;}
-    .manual-stock-form input{width:100%;}
+    .manual-stock-form input:not([type="checkbox"]), .manual-stock-form select{width:100%;}
+    .manual-stock-form label{width:100%;}
     .backup-row{flex-direction:column;}
 
     /* los botones de acción principal (Crear, Registrar entrada, Registrar bobina...)
@@ -739,6 +805,7 @@
 
   <div id="alertBanner" class="alert-banner" style="display:none;"></div>
   <div id="pedidoNotifBanner"></div>
+  <datalist id="ubicacionesList"></datalist>
 
   <div id="globalSearchZone"></div>
 
@@ -760,6 +827,15 @@
   <button class="btn ghost-danger" style="width:auto;padding:8px 20px;" id="camClose">Cerrar cámara</button>
 </div>
 
+<div id="etiquetaImprimir" class="solo-impresion">
+  <div class="etiqueta-code"></div>
+  <div class="etiqueta-desc"></div>
+</div>
+
+<div id="tourOverlay" style="display:none; position:fixed; inset:0; background:rgba(20,15,5,.55); align-items:center; justify-content:center; z-index:1000; padding:16px;">
+  <div class="signature-card" id="tourBody" style="max-width:420px;"></div>
+</div>
+
 <div id="signatureOverlay" style="display:none;">
   <div class="signature-card">
     <p class="eyebrow" style="margin-bottom:2px;">Entrega de material</p>
@@ -772,7 +848,7 @@
       <button class="cam-btn" id="clearSignatureBtn">Limpiar firma</button>
       <button class="btn ghost-danger" id="cancelDeliveryBtn" style="flex:1; margin:0;">Cancelar</button>
     </div>
-    <button class="btn primary" id="confirmDeliveryBtn" style="margin-top:8px;">✓ Confirmar entrega</button>
+    <button class="btn primary" id="confirmDeliveryBtn" style="margin-top:8px;">Confirmar entrega</button>
   </div>
 </div>
 
@@ -780,8 +856,8 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" defer></script>
 <script>
 (function(){
 
@@ -833,11 +909,8 @@
     });
   }
 
-  // pdf.js para leer PDFs al crear una orden — si no carga, no ofrezco esa opción
-  const hasPdfLib = typeof pdfjsLib !== 'undefined';
-  if(hasPdfLib){
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-  }
+  // pdf.js para leer PDFs al crear una orden — se carga en diferido (defer), así que la
+  // comprobación de si está listo se hace al usarlo de verdad, no aquí al arrancar
 
   // ---------- Login (Firebase Authentication, opcional) ----------
   let auth = null;
@@ -886,6 +959,11 @@
     return 'almacen';
   }
 
+  // para saber quién hizo cada movimiento — si no hay login (app sin Firebase), queda vacío
+  function currentUserEmail(){
+    return (auth && auth.currentUser && auth.currentUser.email) || '';
+  }
+
   function showLoginScreen(errorMsg){
     document.getElementById('loginScreen').style.display = 'flex';
     document.getElementById('app').style.display = 'none';
@@ -897,12 +975,92 @@
     document.getElementById('app').style.display = 'block';
     const area = document.getElementById('logoutArea');
     if(area){
-      area.innerHTML = user
-        ? `<button class="cam-btn" id="logoutBtn">${user.email} · Cerrar sesión</button>`
-        : '';
+      area.innerHTML = (user ? `<button class="cam-btn" id="logoutBtn">${user.email} · Cerrar sesión</button>` : '')
+        + '<span id="temaToggleArea"></span>'
+        + '<span id="ayudaBtnArea"></span>';
       const btn = document.getElementById('logoutBtn');
       if(btn) btn.addEventListener('click', ()=> auth.signOut());
+      renderTemaToggleBtn();
+      renderAyudaBtn();
+      comprobarTourInicial();
     }
+  }
+
+  // tema claro/oscuro — es un gusto de cada uno, así que se guarda en este navegador
+  // concreto (localStorage), no se sincroniza entre dispositivos como el resto de datos
+  function aplicarTema(claro){
+    document.documentElement.classList.toggle('tema-claro', claro);
+    const appEl = document.getElementById('app');
+    if(appEl) appEl.classList.toggle('tema-claro', claro);
+  }
+  function toggleTema(){
+    const claro = !document.documentElement.classList.contains('tema-claro');
+    try{ localStorage.setItem('tecnomat_tema', claro ? 'claro' : 'oscuro'); }catch(e){}
+    aplicarTema(claro);
+    renderTemaToggleBtn();
+  }
+  function renderTemaToggleBtn(){
+    const el = document.getElementById('temaToggleArea');
+    if(!el) return;
+    const esClaro = document.documentElement.classList.contains('tema-claro');
+    el.innerHTML = `<button class="cam-btn" id="temaToggleBtn">${esClaro?'Modo oscuro':'Modo claro'}</button>`;
+    document.getElementById('temaToggleBtn').addEventListener('click', toggleTema);
+  }
+  try{
+    if(localStorage.getItem('tecnomat_tema') === 'claro') aplicarTema(true);
+  }catch(e){}
+
+  // tour inicial — solo la primera vez (o cuando se pulse "Ayuda"), pasos sencillos
+  // en texto, nada de tooltips señalando cada botón que sería mucho más frágil de mantener
+  const TOUR_PASOS = [
+    {titulo:'Bienvenido a Tecnomat', texto:'Esta app controla el stock, las órdenes de montaje, los proyectos y los pedidos de material. Un repaso rápido en unos pasos — puedes saltarlo si ya lo conoces.'},
+    {titulo:'Las cuatro secciones', texto:'Arriba tienes Montaje/Venta, Almacén, Proyecto y Pedido — cada una con su propio color, para saber de un vistazo en cuál estás.'},
+    {titulo:'Escanear', texto:'El campo de escaneo funciona con lector USB/Bluetooth, con la cámara del móvil, o escribiendo el código a mano. Justo después de leerlo, se pregunta la cantidad.'},
+    {titulo:'Buscar en cualquier momento', texto:'El buscador de arriba de todo funciona en cualquier sección — busca por código, artículo o referencia, sin tener que cambiar de sitio.'},
+    {titulo:'Ya está', texto:'Eso es lo esencial para empezar. Puedes volver a ver este repaso cuando quieras con el botón "Ayuda", junto al de cambiar de tema.'}
+  ];
+  let tourPaso = 0;
+  function renderTourPaso(){
+    const p = TOUR_PASOS[tourPaso];
+    const body = document.getElementById('tourBody');
+    if(!body) return;
+    body.innerHTML = `
+      <h1 style="font-size:22px; margin-bottom:8px;">${p.titulo}</h1>
+      <p style="color:var(--text-muted); font-size:14px; line-height:1.5; margin:0;">${p.texto}</p>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:18px; gap:10px;">
+        <button class="cam-btn" id="tourSaltarBtn" style="flex:none; width:auto;">Saltar</button>
+        <span style="color:var(--text-faint); font-size:12px;">${tourPaso+1} / ${TOUR_PASOS.length}</span>
+        <button class="btn primary" id="tourSiguienteBtn" style="width:auto; flex:none; padding:10px 22px;">${tourPaso<TOUR_PASOS.length-1?'Siguiente':'Empezar'}</button>
+      </div>
+    `;
+    document.getElementById('tourSaltarBtn').addEventListener('click', cerrarTour);
+    document.getElementById('tourSiguienteBtn').addEventListener('click', ()=>{
+      if(tourPaso < TOUR_PASOS.length-1){ tourPaso++; renderTourPaso(); }
+      else cerrarTour();
+    });
+  }
+  function mostrarTour(){
+    tourPaso = 0;
+    const overlay = document.getElementById('tourOverlay');
+    if(!overlay) return;
+    overlay.style.display = 'flex';
+    renderTourPaso();
+  }
+  function cerrarTour(){
+    const overlay = document.getElementById('tourOverlay');
+    if(overlay) overlay.style.display = 'none';
+    try{ localStorage.setItem('tecnomat_tour_visto', '1'); }catch(e){}
+  }
+  function renderAyudaBtn(){
+    const el = document.getElementById('ayudaBtnArea');
+    if(!el) return;
+    el.innerHTML = `<button class="cam-btn" id="ayudaBtn">Ayuda</button>`;
+    document.getElementById('ayudaBtn').addEventListener('click', mostrarTour);
+  }
+  function comprobarTourInicial(){
+    let visto = false;
+    try{ visto = !!localStorage.getItem('tecnomat_tour_visto'); }catch(e){}
+    if(!visto) mostrarTour();
   }
 
   if(auth){
@@ -926,6 +1084,11 @@
     });
   }else{
     document.getElementById('app').style.display = 'block';
+    const area = document.getElementById('logoutArea');
+    if(area) area.innerHTML = '<span id="temaToggleArea"></span><span id="ayudaBtnArea"></span>';
+    renderTemaToggleBtn();
+    renderAyudaBtn();
+    comprobarTourInicial();
     loadAll();
   }
 
@@ -946,6 +1109,7 @@
     pendingDelivery: null,    // {items:[...], recipientName} - el pedido ya congelado, esperando la firma
     deliveries: [],            // [{id, items, recipientName, signature, ts, tsMs}] - entregas ya firmadas
     notifications: [],          // [{id, groupKind, groupName, requesterName, ts, tsMs, leida}] - avisos de "hay un pedido nuevo"
+    ubicaciones: [],             // ['Pasillo 3 - B2', ...] — lista mantenida a mano, para autocompletar sin obligar a usarla
     settings: {               // esto lo configuro yo mismo desde el panel de avisos
       bobinaAvisoDias: 3,     // con cuántos días de margen quiero que me avise antes de la fecha de devolución
       stockBajoUmbral: 2,     // a partir de qué cantidad considero que el stock está bajo
@@ -977,6 +1141,12 @@
   const slug = s => s.trim().toLowerCase().replace(/[^a-z0-9]+/g,'-');
   // escapa comillas/</> para que no rompan el HTML montado a mano
   const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  // espera a que se deje de teclear un momento antes de filtrar — con listas grandes,
+  // filtrar en cada pulsación de tecla es trabajo de sobra que no hace falta
+  function debounce(fn, ms){
+    let t;
+    return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+  }
 
   // logo como imagen no es posible (de pago en esta librería) — se usa texto en su lugar
   function jsonToBrandedSheet(rows, fallbackRow){
@@ -989,7 +1159,7 @@
   // segundo parámetro opcional: función de deshacer, sale como botón junto al aviso
   function showStatus(msg, undoFn){
     const b = $('#statusBanner');
-    b.innerHTML = esc(msg) + (undoFn ? ' <button id="undoBtn" class="btn-return" style="margin-left:8px; padding:3px 9px; font-size:11px;">↺ Deshacer</button>' : '');
+    b.innerHTML = esc(msg) + (undoFn ? ' <button id="undoBtn" class="btn-return" style="margin-left:8px; padding:3px 9px; font-size:11px;">Deshacer</button>' : '');
     b.style.display = 'block';
     if(undoFn){
       const btn = $('#undoBtn');
@@ -1057,18 +1227,19 @@
   }
 
   async function loadAll(){
-    const [catalog, movements, groupsMontaje, groupsProyecto, oldLists, oldProjects, appState, bobinas, settings, alerts, pedidoItems, movementsArchive, deliveries, notifications] = await Promise.all([
+    const [catalog, movements, groupsMontaje, groupsProyecto, oldLists, oldProjects, appState, bobinas, settings, alerts, pedidoItems, movementsArchive, deliveries, notifications, ubicaciones] = await Promise.all([
       safeGet('catalog'), safeGet('movements'), safeGet('groups_montaje'), safeGet('groups_proyecto'),
       safeGet('lists'), safeGet('projects'), safeGet('app_state'),
-      safeGet('bobinas'), safeGet('settings'), safeGet('alerts_state'), safeGet('pedido_items'), safeGet('movements_archive'), safeGet('deliveries'), safeGet('notifications')
+      safeGet('bobinas'), safeGet('settings'), safeGet('alerts_state'), safeGet('pedido_items'), safeGet('movements_archive'), safeGet('deliveries'), safeGet('notifications'), safeGet('ubicaciones')
     ]);
-    if(catalog) state.catalog = catalog.map(m => ({id:m.id||uid(), code:m.code, desc:m.desc, qty: typeof m.qty==='number'?m.qty:0, location:m.location||'', specs:m.specs||'', marca:m.marca||'', referencia:m.referencia||'', categoria:m.categoria||''}));
+    if(catalog) state.catalog = catalog.map(m => ({id:m.id||uid(), code:m.code, desc:m.desc, qty: typeof m.qty==='number'?m.qty:0, location:m.location||'', specs:m.specs||'', marca:m.marca||'', referencia:m.referencia||'', categoria:m.categoria||'', coste:typeof m.coste==='number'?m.coste:0}));
     if(movements) state.movements = movements;
     if(movementsArchive) state.movementsArchive = movementsArchive;
     if(bobinas) state.bobinas = bobinas;
     if(pedidoItems) state.pedidoItems = pedidoItems;
     if(deliveries) state.deliveries = deliveries;
     if(notifications) state.notifications = notifications;
+    if(ubicaciones) state.ubicaciones = ubicaciones;
     state.notifications.forEach(n => idsNotificadosConSonido.add(n.id)); // no suenan las que ya existían al entrar
     if(settings) state.settings = Object.assign({}, state.settings, settings);
     if(alerts) state.alerts = alerts;
@@ -1135,7 +1306,7 @@
   }
   function setupRealtimeWatchers(){
     if(!hasFirebase) return;
-    watchKey('catalog', v => { state.catalog = v.map(m => ({id:m.id||uid(), code:m.code, desc:m.desc, qty: typeof m.qty==='number'?m.qty:0, location:m.location||'', specs:m.specs||'', marca:m.marca||'', referencia:m.referencia||'', categoria:m.categoria||''})); });
+    watchKey('catalog', v => { state.catalog = v.map(m => ({id:m.id||uid(), code:m.code, desc:m.desc, qty: typeof m.qty==='number'?m.qty:0, location:m.location||'', specs:m.specs||'', marca:m.marca||'', referencia:m.referencia||'', categoria:m.categoria||'', coste:typeof m.coste==='number'?m.coste:0})); });
     watchKey('movements', v => { state.movements = v; });
     watchKey('bobinas', v => { state.bobinas = v; });
     watchKey('settings', v => { state.settings = Object.assign({}, state.settings, v); });
@@ -1191,6 +1362,28 @@
   function savePedido(){ safeSet('pedido_items', state.pedidoItems); }
   function saveDeliveries(){ safeSet('deliveries', state.deliveries.slice(0,200)); } // con las últimas 200 entregas de sobra
   function saveNotifications(){ safeSet('notifications', state.notifications.slice(0,100)); }
+  function saveUbicaciones(){ safeSet('ubicaciones', state.ubicaciones); }
+
+  function addUbicacion(nombre){
+    nombre = (nombre||'').trim();
+    if(!nombre) return;
+    if(state.ubicaciones.some(u => u.toLowerCase() === nombre.toLowerCase())){
+      showStatus('Esa ubicación ya está en la lista.');
+      return;
+    }
+    state.ubicaciones.push(nombre);
+    state.ubicaciones.sort((a,b)=>a.localeCompare(b));
+    saveUbicaciones();
+    render();
+  }
+
+  function removeUbicacion(nombre){
+    if(!confirm('¿Quitar "'+nombre+'" de la lista de ubicaciones? Los materiales que ya la tengan puesta no se tocan, solo deja de aparecer para autocompletar.')) return;
+    state.ubicaciones = state.ubicaciones.filter(u => u !== nombre);
+    saveUbicaciones();
+    render();
+  }
+
 
   function exportDeliveries(){
     if(!state.deliveries.length){ showStatus('Todavía no hay entregas firmadas.'); return; }
@@ -1253,7 +1446,7 @@
     const delta = (type === 'entrada' ? qty : -qty);
     // actualiza en local al instante, sin esperar confirmación del servidor
     item.qty += delta;
-    state.movements.unshift({id:uid(), code:item.code, desc:item.desc, qty, type, origin, ts:nowStr(), tsMs:Date.now()});
+    state.movements.unshift({id:uid(), code:item.code, desc:item.desc, qty, type, origin, ts:nowStr(), tsMs:Date.now(), usuario:currentUserEmail()});
     saveMovements();
 
     if(hasFirebase){
@@ -1314,6 +1507,54 @@
     render();
   }
 
+  function changeCoste(id){
+    const item = state.catalog.find(m => m.id === id);
+    if(!item) return;
+    const val = prompt('Coste por unidad de '+item.code+' — '+item.desc+' (€):', item.coste || 0);
+    if(val === null) return;
+    const num = parseFloat(String(val).replace(',','.'));
+    item.coste = isNaN(num) ? 0 : Math.max(0, num);
+    saveCatalog();
+    render();
+  }
+
+  // JsBarcode solo se carga la primera vez que hace falta imprimir una etiqueta —
+  // no tiene sentido descargarlo si nadie va a usar esta función en toda la sesión
+  let jsBarcodePromise = null;
+  function ensureJsBarcode(){
+    if(typeof JsBarcode !== 'undefined') return Promise.resolve();
+    if(jsBarcodePromise) return jsBarcodePromise;
+    jsBarcodePromise = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js';
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error('No se pudo cargar el generador de códigos de barras'));
+      document.head.appendChild(s);
+    });
+    return jsBarcodePromise;
+  }
+
+  async function imprimirEtiqueta(id){
+    const item = state.catalog.find(m => m.id === id);
+    if(!item) return;
+    try{
+      await ensureJsBarcode();
+    }catch(e){
+      showStatus('No se pudo cargar el generador de etiquetas — revisa la conexión e inténtalo de nuevo.');
+      return;
+    }
+    const contenedor = $('#etiquetaImprimir .etiqueta-code');
+    contenedor.innerHTML = '<svg></svg>';
+    try{
+      JsBarcode(contenedor.querySelector('svg'), item.code, {format:'CODE128', displayValue:true, height:60, fontSize:14, margin:6});
+    }catch(e){
+      showStatus('No se pudo generar el código de barras para "'+item.code+'".');
+      return;
+    }
+    $('#etiquetaImprimir .etiqueta-desc').textContent = item.desc;
+    window.print();
+  }
+
   function deleteStockItem(id){
     const item = state.catalog.find(m => m.id === id);
     if(!item) return;
@@ -1322,7 +1563,7 @@
       : '¿Eliminar "'+item.code+' — '+item.desc+'" del stock? Esta acción no se puede deshacer.';
     if(!confirm(msg)) return;
     // antes de borrarla, queda constancia en el historial
-    state.movements.unshift({id:uid(), code:item.code, desc:item.desc, qty:item.qty, type:'eliminado', origin:'Almacén (referencia eliminada)', ts:nowStr(), tsMs:Date.now()});
+    state.movements.unshift({id:uid(), code:item.code, desc:item.desc, qty:item.qty, type:'eliminado', origin:'Almacén (referencia eliminada)', ts:nowStr(), tsMs:Date.now(), usuario:currentUserEmail()});
     saveMovements();
     state.catalog = state.catalog.filter(m => m.id !== id);
     saveCatalog();
@@ -1509,7 +1750,8 @@
       recipientName: state.pendingDelivery.recipientName,
       signature: signatureDataUrl,
       ts: nowStr(),
-      tsMs: Date.now()
+      tsMs: Date.now(),
+      confirmadoPor: currentUserEmail()
     });
     saveDeliveries();
     state.pendingDelivery = null;
@@ -2014,7 +2256,7 @@
       try{
         const data = JSON.parse(ev.target.result);
         if(!confirm('Esto reemplazará el stock, las órdenes de montaje y los proyectos actuales por los de la copia de seguridad. ¿Continuar?')) return;
-        state.catalog = (data.catalog||[]).map(m => ({id:m.id||uid(), code:m.code, desc:m.desc, qty:typeof m.qty==='number'?m.qty:0, location:m.location||'', specs:m.specs||'', marca:m.marca||'', referencia:m.referencia||'', categoria:m.categoria||''}));
+        state.catalog = (data.catalog||[]).map(m => ({id:m.id||uid(), code:m.code, desc:m.desc, qty:typeof m.qty==='number'?m.qty:0, location:m.location||'', specs:m.specs||'', marca:m.marca||'', referencia:m.referencia||'', categoria:m.categoria||'', coste:typeof m.coste==='number'?m.coste:0}));
         state.movements = data.movements || [];
         if(data.groups){
           state.groups = data.groups;
@@ -2053,16 +2295,16 @@
     const stockRows = state.catalog
       .slice()
       .sort((a,b)=>a.code.localeCompare(b.code))
-      .map(m => ({Código:m.code, Artículo:m.desc, Referencia:m.referencia||'', Categoría:m.categoria||'', Ubicación:m.location||'', 'Stock actual':m.qty}));
+      .map(m => ({Código:m.code, Artículo:m.desc, Referencia:m.referencia||'', Categoría:m.categoria||'', Ubicación:m.location||'', 'Stock actual':m.qty, 'Coste unitario':m.coste||0, 'Valor total':+(m.qty*(m.coste||0)).toFixed(2)}));
     const movRows = state.movements.map(m => ({
       Código:m.code, Artículo:m.desc, Cantidad:m.qty,
-      Tipo: movTypeLabel(m.type), Origen:m.origin, Fecha:m.ts
+      Tipo: movTypeLabel(m.type), Origen:m.origin, Fecha:m.ts, Usuario:m.usuario||''
     }));
     const bobinaRows = state.bobinas
       .slice()
       .sort((a,b)=> a.expira.localeCompare(b.expira))
       .map(b => ({Código:b.codigo||'', Referencia:b.desc, Matrícula:b.matricula, 'Devolver antes de':b.expira}));
-    const wsStock = jsonToBrandedSheet(stockRows, {Código:'',Artículo:'',Referencia:'','Stock actual':''});
+    const wsStock = jsonToBrandedSheet(stockRows, {Código:'',Artículo:'',Referencia:'',Categoría:'',Ubicación:'','Stock actual':'','Coste unitario':'','Valor total':''});
     const wsMov = jsonToBrandedSheet(movRows, {Código:'',Referencia:'',Cantidad:'',Tipo:'',Origen:'',Fecha:''});
     const wsBobinas = jsonToBrandedSheet(bobinaRows, {Código:'',Referencia:'',Matrícula:'','Devolver antes de':''});
     XLSX.utils.book_append_sheet(wb, wsStock, 'Stock actual');
@@ -2116,19 +2358,22 @@
           const refKey = keys.find(k => /^(referencia|ref)$/i.test(k.trim()));
           const qtyKey = keys.find(k => /^(stock|cantidad|existencias)$/i.test(k.trim()));
           const locKey = keys.find(k => /^(ubicaci[oó]n|location|lugar|posici[oó]n)$/i.test(k.trim()));
+          const costeKey = keys.find(k => /^(coste|costo|precio|precio unitario|coste unitario)$/i.test(k.trim()));
           const code = codeKey ? String(row[codeKey]).trim() : String(row[keys[0]]).trim();
           const desc = descKey ? String(row[descKey]).trim() : '';
           const referenciaVal = refKey ? String(row[refKey]).trim() : '';
           const qtyVal = qtyKey ? parseInt(row[qtyKey],10) : NaN;
           const locVal = locKey ? String(row[locKey]).trim() : '';
+          const costeVal = costeKey ? parseFloat(String(row[costeKey]).replace(',','.').replace(/[^0-9.\-]/g,'')) : NaN;
           if(!code) return;
           let item = state.catalog.find(m => m.code.toLowerCase() === code.toLowerCase());
           if(item){
             if(desc) item.desc = desc;
             if(locVal) item.location = locVal;
             if(referenciaVal) item.referencia = referenciaVal;
+            if(!isNaN(costeVal)) item.coste = costeVal;
           }else{
-            item = {id:uid(), code, desc: desc || referenciaVal || '(sin referencia)', qty:0, location: locVal, referencia: referenciaVal, specs:'', marca:''};
+            item = {id:uid(), code, desc: desc || referenciaVal || '(sin referencia)', qty:0, location: locVal, referencia: referenciaVal, specs:'', marca:'', coste: !isNaN(costeVal)?costeVal:0};
             state.catalog.push(item);
             added++;
           }
@@ -2203,7 +2448,7 @@
         });
 
         aEliminar.forEach(item => {
-          state.movements.unshift({id:uid(), code:item.code, desc:item.desc, qty:item.qty, type:'eliminado', origin:'Sobrescritura de stock (Excel) — ya no está en el archivo', ts:nowStr(), tsMs:Date.now()});
+          state.movements.unshift({id:uid(), code:item.code, desc:item.desc, qty:item.qty, type:'eliminado', origin:'Sobrescritura de stock (Excel) — ya no está en el archivo', ts:nowStr(), tsMs:Date.now(), usuario:currentUserEmail()});
         });
         saveMovements();
         state.catalog = state.catalog.filter(m => codigosEnArchivo.has(m.code.toLowerCase()));
@@ -2249,10 +2494,11 @@
 
   // "mejor esfuerzo": sin columnas reales, busca "referencia ... cantidad" por línea
   async function parsePdfOrderFile(file){
-    if(!hasPdfLib){
+    if(typeof pdfjsLib === 'undefined'){
       showStatus('No se pudo cargar el lector de PDF. Prueba subiendo un Excel/CSV en su lugar.');
       return [];
     }
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
     const buf = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({data:buf}).promise;
     let texto = '';
@@ -2476,7 +2722,7 @@
   function render(){
     if(state.mode === 'almacen' && getUserRole() === 'taller') state.mode = 'montaje'; // taller no entra aquí, ni de rebote
     const appEl = document.getElementById('app');
-    if(appEl) appEl.className = 'mode-' + state.mode; // esto es lo que hace que cada sección tenga su color
+    if(appEl) appEl.className = 'mode-' + state.mode + (appEl.classList.contains('tema-claro') ? ' tema-claro' : ''); // se conserva el tema al cambiar de sección
     renderAlertBanner();
     renderPedidoNotifBanner();
     renderGlobalSearch();
@@ -2488,6 +2734,8 @@
     else renderMainList();
     renderSidePanel();
     renderSignatureOverlay();
+    const datalistEl = $('#ubicacionesList');
+    if(datalistEl) datalistEl.innerHTML = state.ubicaciones.map(u => `<option value="${esc(u)}">`).join('');
   }
 
   // buscador de arriba, funciona en cualquier sección
@@ -2496,14 +2744,15 @@
     if(!zone) return;
     zone.innerHTML = `
       <div class="global-search">
-        <input type="text" id="globalStockSearch" placeholder="🔍 Buscar en el stock por código o referencia…" value="${esc(globalSearchTerm)}">
+        <input type="text" id="globalStockSearch" placeholder="Buscar en el stock por código o referencia…" value="${esc(globalSearchTerm)}">
         <div id="globalSearchResults"></div>
       </div>
     `;
     const input = $('#globalStockSearch');
+    const debouncedGlobalSearch = debounce(()=> renderGlobalSearchResults(), 220);
     input.addEventListener('input', e=>{
       globalSearchTerm = e.target.value;
-      renderGlobalSearchResults();
+      debouncedGlobalSearch();
     });
     renderGlobalSearchResults();
   }
@@ -2527,7 +2776,7 @@
           <div class="row-desc">${esc(m.desc)}</div>
         </div>
         <div class="row-actions">
-          <span class="stock-loc ${m.location?'set':'unset'}">📍 ${esc(m.location)||'Sin ubicar'}</span>
+          <span class="stock-loc ${m.location?'set':'unset'}">${esc(m.location)||'Sin ubicar'}</span>
           <span class="stock-qty ${m.qty>0?'ok':'low'}">${m.qty}</span>
           <button class="cam-btn" style="padding:9px 14px; font-size:13px; min-height:38px;" data-globalsearch-loc="${m.id}">Cambiar ubicación</button>
           <button class="cam-btn" style="padding:9px 14px; font-size:13px; min-height:38px;" data-globalsearch-qty="${m.id}">Cambiar cantidad</button>
@@ -2557,7 +2806,7 @@
     if(bajoStock.length) partes.push(bajoStock.length+' material(es) con '+state.settings.stockBajoUmbral+' unidades o menos');
     if(bobinasExp.length) partes.push(bobinasExp.length+' bobina(s) a punto de expirar');
     el.style.display = 'block';
-    el.innerHTML = '⚠ Aviso: ' + partes.join(' · ') + '. Revísalo en Almacén.';
+    el.innerHTML = 'Aviso: ' + partes.join(' · ') + '. Revísalo en Almacén.';
   }
 
   // aviso de "pedido nuevo" — pulsar una línea lleva a la Hoja de pedido de esa orden
@@ -2576,8 +2825,8 @@
     if(!sinLeer.length){ el.innerHTML = ''; return; }
     el.innerHTML = sinLeer.map(n => `
       <div class="alert-banner" style="cursor:pointer; display:flex; justify-content:space-between; align-items:center; gap:8px;" data-notif-id="${n.id}">
-        <span>📬 Nuevo pedido en <strong>${esc(n.groupName)}</strong> (${n.groupKind==='montaje'?'Montaje/Venta':'Proyecto'}${n.tipo?' · '+esc(n.tipo):''}) — pedido por ${esc(n.requesterName)}, ${n.lineas} línea(s). Pulsa para ir ahí.</span>
-        <button class="btn-return" data-notif-close="${n.id}" style="flex:none;">✕</button>
+        <span>Nuevo pedido en <strong>${esc(n.groupName)}</strong> (${n.groupKind==='montaje'?'Montaje/Venta':'Proyecto'}${n.tipo?' · '+esc(n.tipo):''}) — pedido por ${esc(n.requesterName)}, ${n.lineas} línea(s). Pulsa para ir ahí.</span>
+        <button class="btn-return" data-notif-close="${n.id}" style="flex:none;">×</button>
       </div>
     `).join('');
     el.querySelectorAll('[data-notif-id]').forEach(row=>{
@@ -2614,7 +2863,7 @@
   function renderModeBar(){
     const bar = $('#modeBar');
     const esTaller = getUserRole() === 'taller';
-    const modes = [['montaje','🔧 Montaje/Venta'],['almacen','📦 Almacén (Stock)'],['proyecto','📁 Proyecto'],['pedido','🛒 Pedido']]
+    const modes = [['montaje','Montaje/Venta'],['almacen','Almacén (Stock)'],['proyecto','Proyecto'],['pedido','Pedido']]
       .filter(([k]) => !(esTaller && k==='almacen')); // taller no ve Almacén, ni falta que le hace
     bar.innerHTML = modes.map(([k,label]) =>
       `<button class="mode-btn ${state.mode===k?'active':''}" data-mode="${k}">${label}</button>`
@@ -2656,8 +2905,8 @@
         ${current?`
           <span class="pill-current" style="${current.status==='finalizado'?'background:var(--bg-raised-2); color:var(--text-muted);':''}">${current.status==='finalizado'?'Finalizado':'Activo'}</span>
           ${current.tipo ? `<span class="pill-current">${esc(current.tipo)}</span>` : ''}
-          <button class="cam-btn" id="toggleStatusBtn">${current.status==='finalizado'?'↺ Reactivar':'✓ Finalizar'}</button>
-          <button class="btn-return" id="deleteGroupBtn">🗑 Eliminar</button>
+          <button class="cam-btn" id="toggleStatusBtn">${current.status==='finalizado'?'Reactivar':'Finalizar'}</button>
+          <button class="btn-return" id="deleteGroupBtn">Eliminar</button>
         `:''}
       </div>
     `;
@@ -2710,13 +2959,13 @@
       <div class="scanner-panel">
         ${groupKind && target ? `
           <input type="text" id="requesterNameInput" placeholder="¿Quién lo pide? (obligatorio para poder escanear)" value="${esc(target.pendiente.requesterName)}" style="width:100%; margin-bottom:${faltaSolicitante?'4px':'8px'}; background:var(--bg-raised); border:1px solid ${target.pendiente.requesterName?'var(--border)':'var(--danger)'}; color:var(--text-primary); padding:11px 12px; border-radius:8px; font-size:14px;">
-          ${faltaSolicitante ? `<div style="color:var(--danger); font-size:12px; font-weight:600; margin-bottom:8px;">⚠ Escribe aquí quién hace la solicitud y pulsa fuera del campo — el escáner está bloqueado hasta entonces.</div>` : ''}
+          ${faltaSolicitante ? `<div style="color:var(--danger); font-size:12px; font-weight:600; margin-bottom:8px;">Escribe aquí quién hace la solicitud y pulsa fuera del campo — el escáner está bloqueado hasta entonces.</div>` : ''}
         ` : ''}
         <div class="scanner-row">
           <input id="scanInput" type="text" placeholder="${placeholder}" ${disabled?'disabled':''} autocomplete="off">
         </div>
         <div class="scanner-actions">
-          <button class="cam-btn" id="camBtn" ${disabled?'disabled':''}>📷 Cámara</button>
+          <button class="cam-btn" id="camBtn" ${disabled?'disabled':''}>Cámara</button>
           <button class="btn primary" id="scanSubmitBtn" ${disabled?'disabled':''}>${submitLabel}</button>
         </div>
         <div class="scan-hint">${hint}</div>
@@ -2725,7 +2974,7 @@
             <span>Nueva referencia para el código <strong>${esc(pendingUnknownCode.code)}</strong>:</span>
             <input id="unknownDesc" type="text" placeholder="Artículo…">
             <input id="unknownRef" type="text" placeholder="Referencia (opcional)…">
-            <input id="unknownLoc" type="text" placeholder="Ubicación (opcional)…">
+            <input id="unknownLoc" type="text" placeholder="Ubicación (opcional)…" list="ubicacionesList">
             <select id="unknownCategoria" style="background:var(--bg-raised); border:1px solid var(--border); color:var(--text-primary); padding:8px 10px; border-radius:6px;">
               <option value="">Categoría…</option>
               ${CATEGORIAS_STOCK.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}
@@ -2740,7 +2989,7 @@
               ${pendingCodeChoice.matches.map(id=>{
                 const it = state.catalog.find(x=>x.id===id);
                 if(!it) return '';
-                return `<button class="cam-btn code-choice-btn" data-choice-item="${it.id}">${esc(it.desc)} <span class="code-choice-meta">· ${it.qty} uds · 📍${esc(it.location)||'sin ubicar'}</span></button>`;
+                return `<button class="cam-btn code-choice-btn" data-choice-item="${it.id}">${esc(it.desc)} <span class="code-choice-meta">· ${it.qty} uds · Ubic: ${esc(it.location)||'sin ubicar'}</span></button>`;
               }).join('')}
               <button class="cam-btn code-choice-btn" id="choiceCreateNewBtn" style="border-style:dashed;">+ Crear otra referencia nueva con este código</button>
             </div>
@@ -2830,11 +3079,22 @@
     return state.current.proyecto ? 'Proyecto: '+esc(state.current.proyecto) : 'Proyecto';
   }
 
+  let stockFiltroCategoria = ''; // '' = todas
+  let stockFiltroBajo = false;
+  let stockFiltroSinUbicar = false;
+
   function renderStockMain(){
+    // si una búsqueda con retraso (debounce) llega después de cambiar de sección, o si
+    // por lo que sea se llama estando en otra sección, no se toca #mainList — evita que
+    // el contenido de Almacén se pinte encima de Montaje/Proyecto/Pedido por accidente
+    if(state.mode !== 'almacen') return;
     const el = $('#mainList');
     const term = catalogSearchTerm.trim().toLowerCase();
     const items = state.catalog
       .filter(m => !term || m.code.toLowerCase().includes(term) || m.desc.toLowerCase().includes(term) || (m.referencia && m.referencia.toLowerCase().includes(term)))
+      .filter(m => !stockFiltroCategoria || m.categoria === stockFiltroCategoria)
+      .filter(m => !stockFiltroBajo || m.qty <= 0)
+      .filter(m => !stockFiltroSinUbicar || !m.location)
       .slice()
       .sort((a,b)=>a.code.localeCompare(b.code));
     const itemsVisibles = items.slice(0, stockPageSize);
@@ -2848,15 +3108,17 @@
           ${m.referencia ? `<div style="font-size:11px; color:var(--text-faint); margin-top:1px;">Ref: ${esc(m.referencia)}</div>` : ''}
         </div>
         <div class="row-actions">
-          <span class="stock-loc ${m.location?'set':'unset'}">📍 ${esc(m.location) || 'Sin ubicar'}</span>
-          ${m.categoria ? `<span class="stock-loc set">🏷 ${esc(m.categoria)}</span>` : ''}
+          <span class="stock-loc ${m.location?'set':'unset'}">${esc(m.location) || 'Sin ubicar'}</span>
+          ${m.categoria ? `<span class="stock-loc set">Cat: ${esc(m.categoria)}</span>` : ''}
           <span class="stock-qty ${m.qty>0?'ok':'low'}">${m.qty}</span>
           <button class="cam-btn" style="padding:9px 14px; font-size:13px; min-height:38px;" data-qty-btn="${m.id}">Cambiar cantidad</button>
-          ${m.specs ? `<button class="cam-btn" style="padding:9px 14px; font-size:13px; min-height:38px;" data-specs-btn="${m.id}">ℹ️ Características</button>` : ''}
+          <button class="cam-btn" style="padding:9px 14px; font-size:13px; min-height:38px;" data-cost-btn="${m.id}">${m.coste?'Coste: '+m.coste.toFixed(2)+'€':'+ Coste'}</button>
+          <button class="cam-btn" style="padding:9px 14px; font-size:13px; min-height:38px;" data-label-btn="${m.id}">Etiqueta</button>
+          ${m.specs ? `<button class="cam-btn" style="padding:9px 14px; font-size:13px; min-height:38px;" data-specs-btn="${m.id}">Características</button>` : ''}
           <button class="cam-btn" style="padding:9px 14px; font-size:13px; min-height:38px;" data-loc-btn="${m.id}">Cambiar ubicación</button>
           <button class="cam-btn" style="padding:9px 14px; font-size:13px; min-height:38px;" data-cat-btn="${m.id}">${m.categoria?'Cambiar categoría':'+ Categoría'}</button>
           <button class="cam-btn" style="padding:9px 14px; font-size:13px; min-height:38px;" data-dup-btn="${esc(m.code)}">+ Otra referencia</button>
-          <button class="btn-return" style="padding:9px 14px; font-size:13px; min-height:38px;" data-del-btn="${m.id}">🗑 Eliminar</button>
+          <button class="btn-return" style="padding:9px 14px; font-size:13px; min-height:38px;" data-del-btn="${m.id}">Eliminar</button>
         </div>
       </div>
     `).join('') + (items.length > itemsVisibles.length ? `
@@ -2870,9 +3132,26 @@
         <div class="backup-row">
           <button class="cam-btn" id="bulkLocBtn">Cambiar ubicación a todas</button>
           <button class="cam-btn" id="bulkQtyBtn">Cambiar cantidad a todas</button>
-          <button class="btn-return" id="bulkDelBtn">🗑 Eliminar seleccionadas</button>
+          <button class="btn-return" id="bulkDelBtn">Eliminar seleccionadas</button>
         </div>
       </div>` : ''}
+
+      <div class="panel" style="margin-bottom:14px;">
+        <p class="panel-title">Filtros</p>
+        <div class="manual-stock-form" style="margin-top:0;">
+          <select id="stockFiltroCategoriaSel">
+            <option value="">Todas las categorías</option>
+            ${CATEGORIAS_STOCK.map(c=>`<option value="${esc(c)}" ${stockFiltroCategoria===c?'selected':''}>${esc(c)}</option>`).join('')}
+          </select>
+          <label style="display:flex; align-items:center; gap:6px; flex:1; min-width:150px; font-size:13px; color:var(--text-primary);">
+            <input type="checkbox" id="stockFiltroBajoChk" ${stockFiltroBajo?'checked':''} style="width:16px; height:16px;"> Solo stock bajo (0)
+          </label>
+          <label style="display:flex; align-items:center; gap:6px; flex:1; min-width:150px; font-size:13px; color:var(--text-primary);">
+            <input type="checkbox" id="stockFiltroSinUbicarChk" ${stockFiltroSinUbicar?'checked':''} style="width:16px; height:16px;"> Solo sin ubicar
+          </label>
+          ${(stockFiltroCategoria || stockFiltroBajo || stockFiltroSinUbicar) ? `<button class="cam-btn" id="stockFiltroLimpiarBtn" style="flex:none;">Quitar filtros</button>` : ''}
+        </div>
+      </div>
 
       <div class="ticket">
         <div class="ticket-header">
@@ -2880,7 +3159,7 @@
           <span class="ticket-title">${items.length} referencias</span>
         </div>
         <div class="ticket-body">
-          ${rows || '<div class="empty-state">'+(term?'Sin coincidencias en el stock.':'Todavía no hay materiales en el stock. Añade uno abajo o importa tu Excel.')+'</div>'}
+          ${rows || '<div class="empty-state">'+((term||stockFiltroCategoria||stockFiltroBajo||stockFiltroSinUbicar)?'Sin coincidencias con estos filtros.':'Todavía no hay materiales en el stock. Añade uno abajo o importa tu Excel.')+'</div>'}
         </div>
       </div>
 
@@ -2890,7 +3169,7 @@
           <input type="text" name="mCode" id="mCode" placeholder="Código">
           <input type="text" name="mDesc" id="mDesc" placeholder="Artículo">
           <input type="text" name="mRef" id="mRef" placeholder="Referencia (opcional)">
-          <input type="text" name="mLoc" id="mLoc" placeholder="Ubicación (ej. Pasillo 3 - B2)">
+          <input type="text" name="mLoc" id="mLoc" placeholder="Ubicación (ej. Pasillo 3 - B2)" list="ubicacionesList">
           <input type="number" name="mQty" id="mQty" placeholder="Cant." min="1" value="1">
           <select id="mCategoria">
             <option value="">Categoría…</option>
@@ -2942,7 +3221,7 @@
       if(!confirm('¿Eliminar '+selectedStockIds.size+' referencias del stock? Esta acción no se puede deshacer.')) return;
       selectedStockIds.forEach(id=>{
         const item = state.catalog.find(m=>m.id===id);
-        if(item) state.movements.unshift({id:uid(), code:item.code, desc:item.desc, qty:item.qty, type:'eliminado', origin:'Almacén (eliminación en bloque)', ts:nowStr(), tsMs:Date.now()});
+        if(item) state.movements.unshift({id:uid(), code:item.code, desc:item.desc, qty:item.qty, type:'eliminado', origin:'Almacén (eliminación en bloque)', ts:nowStr(), tsMs:Date.now(), usuario:currentUserEmail()});
       });
       saveMovements();
       state.catalog = state.catalog.filter(m=>!selectedStockIds.has(m.id));
@@ -2950,6 +3229,31 @@
       selectedStockIds.clear();
       render();
     });
+    const filtroCategoriaSel = $('#stockFiltroCategoriaSel');
+    if(filtroCategoriaSel) filtroCategoriaSel.addEventListener('change', e=>{
+      stockFiltroCategoria = e.target.value;
+      stockPageSize = 80;
+      renderStockMain();
+    });
+    const filtroBajoChk = $('#stockFiltroBajoChk');
+    if(filtroBajoChk) filtroBajoChk.addEventListener('change', e=>{
+      stockFiltroBajo = e.target.checked;
+      stockPageSize = 80;
+      renderStockMain();
+    });
+    const filtroSinUbicarChk = $('#stockFiltroSinUbicarChk');
+    if(filtroSinUbicarChk) filtroSinUbicarChk.addEventListener('change', e=>{
+      stockFiltroSinUbicar = e.target.checked;
+      stockPageSize = 80;
+      renderStockMain();
+    });
+    const filtroLimpiarBtn = $('#stockFiltroLimpiarBtn');
+    if(filtroLimpiarBtn) filtroLimpiarBtn.addEventListener('click', ()=>{
+      stockFiltroCategoria = ''; stockFiltroBajo = false; stockFiltroSinUbicar = false;
+      stockPageSize = 80;
+      renderStockMain();
+    });
+
     const selectAllBox = $('#selectAllStock');
     if(selectAllBox){
       selectAllBox.checked = items.length>0 && items.every(m => selectedStockIds.has(m.id));
@@ -2970,6 +3274,12 @@
     });
     el.querySelectorAll('[data-qty-btn]').forEach(btn=>{
       btn.addEventListener('click', ()=> changeQuantity(btn.dataset.qtyBtn));
+    });
+    el.querySelectorAll('[data-cost-btn]').forEach(btn=>{
+      btn.addEventListener('click', ()=> changeCoste(btn.dataset.costBtn));
+    });
+    el.querySelectorAll('[data-label-btn]').forEach(btn=>{
+      btn.addEventListener('click', ()=> imprimirEtiqueta(btn.dataset.labelBtn));
     });
     el.querySelectorAll('[data-cat-btn]').forEach(btn=>{
       btn.addEventListener('click', ()=> changeCategoria(btn.dataset.catBtn));
@@ -3044,8 +3354,8 @@
             <div class="row-ts">Devolver antes del ${b.expira} — ${diasTexto}</div>
           </div>
           <div class="row-actions">
-            <span class="stock-qty ${estado}">${dias<0?'⚠':''}${b.expira}</span>
-            <button class="btn-return" style="padding:9px 14px; font-size:13px; min-height:38px;" data-bobina-del="${b.id}">🗑 Eliminar</button>
+            <span class="stock-qty ${estado}">${dias<0?'Vencida: ':''}${b.expira}</span>
+            <button class="btn-return" style="padding:9px 14px; font-size:13px; min-height:38px;" data-bobina-del="${b.id}">Eliminar</button>
           </div>
         </div>
       `;
@@ -3056,7 +3366,7 @@
         <p class="panel-title">Bobinas (con fecha de devolución)</p>
         <div class="manual-stock-form">
           <input type="text" id="bCodigo" placeholder="Código">
-          <button class="cam-btn" id="bCamBtn" style="flex:none; padding:9px 12px;">📷</button>
+          <button class="cam-btn" id="bCamBtn" style="flex:none; padding:9px 12px;">Cám.</button>
           <input type="text" id="bDesc" placeholder="Referencia" style="flex:2; min-width:140px;">
           <input type="text" id="bMatricula" placeholder="Matrícula" style="flex:1; min-width:100px;">
           <input type="date" id="bFecha" style="flex:1; min-width:150px;">
@@ -3089,7 +3399,7 @@
           <input type="text" id="cabCodigo" placeholder="Código">
           <input type="text" id="cabArticulo" placeholder="Artículo (ej. Manguera hidráulica 1/2\\")" style="flex:2; min-width:140px;">
           <input type="text" id="cabRef" placeholder="Referencia (opcional)">
-          <input type="text" id="cabLoc" placeholder="Ubicación">
+          <input type="text" id="cabLoc" placeholder="Ubicación" list="ubicacionesList">
           <input type="number" id="cabQty" placeholder="Cant." min="1" value="1">
           <button class="cam-btn" id="addCableBtn">+ Registrar</button>
         </div>
@@ -3114,7 +3424,7 @@
           <div class="row-desc">${esc(m.desc)}</div>
         </div>
         <div class="row-actions">
-          <span class="stock-loc ${m.location?'set':'unset'}">📍 ${esc(m.location) || 'Sin ubicar'}</span>
+          <span class="stock-loc ${m.location?'set':'unset'}">${esc(m.location) || 'Sin ubicar'}</span>
           <span class="stock-qty ${m.qty>0?'ok':'low'}">${m.qty}</span>
         </div>
       </div>
@@ -3123,6 +3433,7 @@
 
 
   function renderPedidoMain(){
+    if(state.mode !== 'pedido') return; // mismo motivo que en renderStockMain — evita pisar otra sección
     const el = $('#mainList');
     const rows = state.pedidoItems.map(it => `
       <div class="ticket-row" data-id="${it.id}">
@@ -3131,7 +3442,7 @@
           <div class="row-desc">${esc(it.desc)}</div>
         </div>
         <div class="row-qty">x${it.qty}</div>
-        <button class="btn-return" data-pedido-del="${it.id}">🗑 Quitar</button>
+        <button class="btn-return" data-pedido-del="${it.id}">Quitar</button>
       </div>
     `).join('');
 
@@ -3153,6 +3464,7 @@
   }
 
   function renderMainList(){
+    if(state.mode !== 'montaje' && state.mode !== 'proyecto') return; // evita pisar otra sección
     const el = $('#mainList');
     const target = currentTarget();
     if(!target){
@@ -3177,17 +3489,17 @@
                 <div class="row-desc">${it.textoLibre ? '<em>'+esc(it.textoLibre)+'</em>' : esc(it.desc)}</div>
               </div>
               <div class="row-qty">x${it.qty}</div>
-              <button class="btn-return" data-pendiente-del="${it.id}">🗑 Quitar</button>
+              <button class="btn-return" data-pendiente-del="${it.id}">Quitar</button>
             </div>
           `).join('')}
         </div>
       </div>
-      ${esTaller ? '' : `<button class="btn primary" id="prepareGroupDeliveryBtn" style="margin-bottom:14px;">${target.pendiente.items.some(it=>it.reservado)?'📝 Ir a firmar la recogida':'📝 Preparar recogida y firmar'}</button>`}
+      ${esTaller ? '' : `<button class="btn primary" id="prepareGroupDeliveryBtn" style="margin-bottom:14px;">${target.pendiente.items.some(it=>it.reservado)?'Ir a firmar la recogida':'Preparar recogida y firmar'}</button>`}
     ` : '';
 
     const tabs = `
       <div class="scanner-row" style="margin-bottom:10px; flex-wrap:wrap;">
-        <button class="mode-btn" data-view="hoja" style="flex:none; padding:8px 16px; ${listView==='hoja'?'background:var(--accent); color:#150A28;':'background:var(--bg-panel); border:1px solid var(--border);'}">📋 Hoja de pedido</button>
+        <button class="mode-btn" data-view="hoja" style="flex:none; padding:8px 16px; ${listView==='hoja'?'background:var(--accent); color:#150A28;':'background:var(--bg-panel); border:1px solid var(--border);'}">Hoja de pedido</button>
         ${esTaller ? '' : `
         <button class="mode-btn" data-view="servido" style="flex:none; padding:8px 16px; ${listView==='servido'?'background:var(--accent); color:#150A28;':'background:var(--bg-panel); border:1px solid var(--border);'}">Servido (${target.servido.length})</button>
         <button class="mode-btn" data-view="devuelto" style="flex:none; padding:8px 16px; ${listView==='devuelto'?'background:var(--accent); color:#150A28;':'background:var(--bg-panel); border:1px solid var(--border);'}">Devuelto (${target.devuelto.length})</button>
@@ -3263,7 +3575,7 @@
               <p style="font-size:11px; color:var(--text-faint); margin:10px 0 0 0;">${esTaller
                 ? 'Rellena y pulsa "Guardar" — almacén prepara y firma la recogida.'
                 : '"Recibido" abre la firma de recogida de toda la solicitud.'}</p>
-              <button class="btn primary" id="saveHojaPedidoBtn" style="margin-top:8px;">💾 Guardar y avisar a almacén</button>
+              <button class="btn primary" id="saveHojaPedidoBtn" style="margin-top:8px;">Guardar y avisar a almacén</button>
             ` : ''}
             ` : '<div class="empty-state">Todavía no hay nada pedido ni servido en esta orden/proyecto.</div>'}
           </div>
@@ -3302,7 +3614,7 @@
           </div>
           <div class="row-qty">x${e.qty}</div>
           <input class="return-qty" type="number" min="1" max="${e.qty}" value="${e.qty}" data-return-for="${e.id}">
-          <button class="btn-return" data-return-btn="${e.id}">↩ Devolver</button>
+          <button class="btn-return" data-return-btn="${e.id}">Devolver</button>
         </div>
       `).join('');
       bodyHtml = `
@@ -3378,7 +3690,7 @@
         <div class="movement-row">
           <span class="tag-${m.type}">${movTypeLabel(m.type)}</span>
           <span class="m-code">${esc(m.code)} <span style="color:var(--text-faint);">x${m.qty}</span></span>
-          <span style="color:var(--text-faint); font-size:11px;">${m.ts}</span>
+          <span style="color:var(--text-faint); font-size:11px;">${m.ts}${m.usuario?' · '+esc(m.usuario):''}</span>
           <span class="m-desc">${esc(m.desc)}</span>
           <span class="m-origin">${esc(m.origin)}</span>
         </div>
@@ -3389,6 +3701,7 @@
           <p class="panel-title">Resumen de stock</p>
           <div class="stat-row"><span>Referencias en stock</span><span class="num">${state.catalog.length}</span></div>
           <div class="stat-row"><span>Referencias a 0 o negativo</span><span class="num">${refsBajo}</span></div>
+          <div class="stat-row"><span>Valor total del inventario</span><span class="num">${state.catalog.reduce((a,m)=>a+(m.qty>0?m.qty*(m.coste||0):0),0).toFixed(2)}€</span></div>
         </div>
 
         <div class="panel">
@@ -3405,7 +3718,7 @@
           <p class="panel-title" style="color:var(--danger);">Sobrescribir todo el stock</p>
           <p style="font-size:11.5px; color:var(--text-faint); margin:0 0 8px 0;">El stock queda igual que el Excel: cantidades exactas, borra lo que no esté.</p>
           <label class="btn ghost-danger" style="text-align:center; display:block;">
-            🔄 Sobrescribir con este Excel
+            Sobrescribir con este Excel
             <input type="file" id="overwriteCatalogFile" accept=".xlsx,.xls,.csv" style="display:none;">
           </label>
         </div>
@@ -3434,6 +3747,24 @@
             <input type="email" id="setEmailDestino" placeholder="tu@email.com" value="${state.settings.emailDestino}">
             <button class="btn primary" id="saveSettingsBtn" style="margin-top:8px;">Guardar avisos</button>
           </div>
+        </div>
+
+        <div class="panel">
+          <p class="panel-title">Ubicaciones</p>
+          <p style="font-size:11.5px; color:var(--text-faint); margin:0 0 8px 0;">Lista para autocompletar — la ubicación sigue siendo texto libre, esto solo evita erratas.</p>
+          <div class="manual-stock-form" style="margin-top:0;">
+            <input type="text" id="nuevaUbicacionInput" placeholder="Nueva ubicación (ej. Pasillo 3 - B2)">
+            <button class="cam-btn" id="addUbicacionBtn" style="flex:none;">+ Añadir</button>
+          </div>
+          ${state.ubicaciones.length ? `
+          <div style="margin-top:10px; max-height:160px; overflow-y:auto;">
+            ${state.ubicaciones.map(u => `
+              <div style="display:flex; justify-content:space-between; align-items:center; padding:5px 0; border-bottom:1px dashed var(--border); font-size:12.5px;">
+                <span>${esc(u)}</span>
+                <button class="btn-return" data-ubicacion-del="${esc(u)}" style="padding:4px 9px; font-size:10.5px; min-height:auto;">Quitar</button>
+              </div>
+            `).join('')}
+          </div>` : '<p style="font-size:11.5px; color:var(--text-faint); margin-top:8px;">Todavía no hay ninguna en la lista.</p>'}
         </div>
 
         ${(state.groups.montaje.length || state.groups.proyecto.length) ? `
@@ -3488,11 +3819,24 @@
         showStatus('Configuración de avisos guardada.');
         render();
       });
+      const addUbicacionBtn = $('#addUbicacionBtn');
+      const nuevaUbicacionInput = $('#nuevaUbicacionInput');
+      if(addUbicacionBtn) addUbicacionBtn.addEventListener('click', ()=>{
+        addUbicacion(nuevaUbicacionInput.value);
+        nuevaUbicacionInput.value = '';
+      });
+      if(nuevaUbicacionInput) nuevaUbicacionInput.addEventListener('keydown', e=>{
+        if(e.key==='Enter'){ e.preventDefault(); addUbicacion(nuevaUbicacionInput.value); nuevaUbicacionInput.value=''; }
+      });
+      el.querySelectorAll('[data-ubicacion-del]').forEach(btn=>{
+        btn.addEventListener('click', ()=> removeUbicacion(btn.dataset.ubicacionDel));
+      });
       const searchInput = $('#catalogSearch');
+      const debouncedStockSearch = debounce(()=> renderStockMain(), 220);
       if(searchInput) searchInput.addEventListener('input', e=>{
         catalogSearchTerm = e.target.value;
         stockPageSize = 80;
-        renderStockMain();
+        debouncedStockSearch();
       });
       const exportAllMontajeBtn = $('#exportAllMontajeBtn');
       if(exportAllMontajeBtn) exportAllMontajeBtn.addEventListener('click', ()=> exportAllGroups('montaje'));
@@ -3511,7 +3855,7 @@
         </div>
         <div class="panel">
           <p class="panel-title">Enviar</p>
-          <button class="btn primary" id="sendPedidoBtn">📧 Enviar pedido por correo</button>
+          <button class="btn primary" id="sendPedidoBtn">Enviar pedido por correo</button>
           <button class="btn ghost-danger" id="clearPedidoBtn">Vaciar pedido</button>
           <p style="font-size:11.5px; color:var(--text-faint); margin-top:8px;">${state.settings.emailDestino ? 'Se envía a '+state.settings.emailDestino+'.' : 'Falta configurar el correo en Almacén → Avisos.'}</p>
         </div>
@@ -3542,7 +3886,7 @@
             </div>`;
           }).join('')}
         </div>
-        <button class="btn primary" id="applyOrderPlanBtn">✓ Confirmar y aplicar</button>
+        <button class="btn primary" id="applyOrderPlanBtn">Confirmar y aplicar</button>
         <button class="btn ghost-danger" id="cancelOrderPlanBtn">Cancelar</button>
       </div>
     ` : '';
@@ -3565,7 +3909,7 @@
       <div class="panel">
         <p class="panel-title">Crear ${state.mode==='montaje'?'orden':'líneas'} desde archivo</p>
         <label class="btn" style="text-align:center; display:block; ${target?'':'opacity:.5; pointer-events:none;'}">
-          📄 Subir Excel / CSV / PDF
+          Subir Excel / CSV / PDF
           <input type="file" id="orderFile" accept=".xlsx,.xls,.csv,.pdf" style="display:none;" ${target?'':'disabled'}>
         </label>
         <p style="font-size:11.5px; color:var(--text-faint); margin-top:6px;">
@@ -3628,9 +3972,10 @@
 
     const searchInput = $('#catalogSearch');
     if(searchInput){
+      const debouncedCatalogSearch = debounce(()=> renderCatalogResults(), 220);
       searchInput.addEventListener('input', e=>{
         catalogSearchTerm = e.target.value;
-        renderCatalogResults();
+        debouncedCatalogSearch();
       });
     }
     renderCatalogResults();
@@ -3654,7 +3999,7 @@
     box.innerHTML = matches.slice(0,25).map(m => `
       <div style="display:flex; justify-content:space-between; gap:8px; padding:6px 0; border-bottom:1px dashed var(--border); font-size:12.5px;">
         <span class="row-code" style="font-size:12px;">${esc(m.code)}</span>
-        <span style="color:var(--text-muted); text-align:right;">${esc(m.desc)} · 📍${esc(m.location)||'sin ubicar'} · <strong style="color:${m.qty>0?'var(--success)':'var(--danger)'};">${m.qty}</strong></span>
+        <span style="color:var(--text-muted); text-align:right;">${esc(m.desc)} · Ubic: ${esc(m.location)||'sin ubicar'} · <strong style="color:${m.qty>0?'var(--success)':'var(--danger)'};">${m.qty}</strong></span>
       </div>
     `).join('') + (matches.length>25 ? `<div style="color:var(--text-faint); font-size:11.5px; padding-top:4px;">+${matches.length-25} más…</div>` : '');
   }
@@ -3704,7 +4049,7 @@ function showSwUpdateBanner(reg){
   if(document.getElementById('swUpdateBanner')) return; // ya lo estoy enseñando, no lo duplico
   const bar = document.createElement('div');
   bar.id = 'swUpdateBanner';
-  bar.style.cssText = 'position:fixed; left:0; right:0; bottom:0; z-index:9999; background:#14161C; color:#FFC800; padding:12px 16px; text-align:center; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; font-size:13.5px; box-shadow:0 -6px 20px rgba(0,0,0,0.25);';
+  bar.style.cssText = 'position:fixed; left:0; right:0; bottom:0; z-index:9999; background:#14161C; color:#FFC800; padding:12px 16px; text-align:center; font-family:"Rajdhani",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; font-size:13.5px; box-shadow:0 -6px 20px rgba(0,0,0,0.25);';
   bar.innerHTML = 'Hay una versión nueva de la app disponible. '
     + '<button id="swUpdateBtn" style="background:#FFC800; color:#14161C; border:none; padding:7px 14px; border-radius:6px; font-weight:700; margin-left:8px; cursor:pointer;">Actualizar ahora</button>';
   document.body.appendChild(bar);
