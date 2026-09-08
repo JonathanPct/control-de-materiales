@@ -1110,6 +1110,7 @@
     deliveries: [],            // [{id, items, recipientName, signature, ts, tsMs}] - entregas ya firmadas
     notifications: [],          // [{id, groupKind, groupName, requesterName, ts, tsMs, leida}] - avisos de "hay un pedido nuevo"
     ubicaciones: [],             // ['Pasillo 3 - B2', ...] — lista mantenida a mano, para autocompletar sin obligar a usarla
+    deliveriesArchive: [],        // resumen (sin la imagen de firma) de entregas antiguas ya archivadas
     settings: {               // esto lo configuro yo mismo desde el panel de avisos
       bobinaAvisoDias: 3,     // con cuántos días de margen quiero que me avise antes de la fecha de devolución
       stockBajoUmbral: 2,     // a partir de qué cantidad considero que el stock está bajo
@@ -1227,10 +1228,10 @@
   }
 
   async function loadAll(){
-    const [catalog, movements, groupsMontaje, groupsProyecto, oldLists, oldProjects, appState, bobinas, settings, alerts, pedidoItems, movementsArchive, deliveries, notifications, ubicaciones] = await Promise.all([
+    const [catalog, movements, groupsMontaje, groupsProyecto, oldLists, oldProjects, appState, bobinas, settings, alerts, pedidoItems, movementsArchive, deliveries, notifications, ubicaciones, deliveriesArchive] = await Promise.all([
       safeGet('catalog'), safeGet('movements'), safeGet('groups_montaje'), safeGet('groups_proyecto'),
       safeGet('lists'), safeGet('projects'), safeGet('app_state'),
-      safeGet('bobinas'), safeGet('settings'), safeGet('alerts_state'), safeGet('pedido_items'), safeGet('movements_archive'), safeGet('deliveries'), safeGet('notifications'), safeGet('ubicaciones')
+      safeGet('bobinas'), safeGet('settings'), safeGet('alerts_state'), safeGet('pedido_items'), safeGet('movements_archive'), safeGet('deliveries'), safeGet('notifications'), safeGet('ubicaciones'), safeGet('deliveries_archive')
     ]);
     if(catalog) state.catalog = catalog.map(m => ({id:m.id||uid(), code:m.code, desc:m.desc, qty: typeof m.qty==='number'?m.qty:0, location:m.location||'', specs:m.specs||'', marca:m.marca||'', referencia:m.referencia||'', categoria:m.categoria||'', coste:typeof m.coste==='number'?m.coste:0}));
     if(movements) state.movements = movements;
@@ -1240,6 +1241,7 @@
     if(deliveries) state.deliveries = deliveries;
     if(notifications) state.notifications = notifications;
     if(ubicaciones) state.ubicaciones = ubicaciones;
+    if(deliveriesArchive) state.deliveriesArchive = deliveriesArchive;
     state.notifications.forEach(n => idsNotificadosConSonido.add(n.id)); // no suenan las que ya existían al entrar
     if(settings) state.settings = Object.assign({}, state.settings, settings);
     if(alerts) state.alerts = alerts;
@@ -1295,13 +1297,17 @@
 
   // ---------- Tiempo real (solo con Firebase) ----------
   let unsubscribers = {};
+  // si llegan varios cambios en tiempo real casi a la vez (de otro dispositivo, por
+  // ejemplo), se juntan en un solo repintado en vez de uno por cada documento que cambia
+  const renderTrasCambiosEnTiempoReal = debounce(() => render(), 80);
+
   function watchKey(key, applyFn){
     if(!hasFirebase) return;
     if(unsubscribers[key]) unsubscribers[key](); // por si ya había uno de antes (p.ej. al cambiar de orden)
     unsubscribers[key] = db.collection(FIRESTORE_COLLECTION).doc(key).onSnapshot(doc => {
       if(!doc.exists) return;
       applyFn(doc.data().value);
-      render();
+      renderTrasCambiosEnTiempoReal();
     }, () => {}); // si falla la conexión no quiero que la app reviente, simplemente no actualiza
   }
   function setupRealtimeWatchers(){
@@ -1360,7 +1366,30 @@
   function saveGroupData(kind, name){ safeSet('group_'+kind+'_'+slug(name), state.groupData[kind+'::'+name]); }
   function saveBobinas(){ safeSet('bobinas', state.bobinas); }
   function savePedido(){ safeSet('pedido_items', state.pedidoItems); }
-  function saveDeliveries(){ safeSet('deliveries', state.deliveries.slice(0,200)); } // con las últimas 200 entregas de sobra
+  function saveDeliveries(){
+    // las firmas pesan (son una imagen) — con muchas guardadas se podía llegar al
+    // límite de 1MB por documento de Firestore y dejar de guardarse sin avisar.
+    // se guardan las 40 más recientes con la firma completa, y el resto se archiva
+    // como un resumen sin la imagen (el dato importante — quién, cuándo, qué — se conserva)
+    if(state.deliveries.length > 50){
+      const overflow = state.deliveries.slice(40);
+      state.deliveries = state.deliveries.slice(0,40);
+      archiveDeliveries(overflow);
+    }
+    safeSet('deliveries', state.deliveries);
+  }
+
+  async function archiveDeliveries(oldOnes){
+    const resumen = oldOnes.map(d => ({
+      groupKind: d.groupKind, groupName: d.groupName, requesterName: d.requesterName,
+      recipientName: d.recipientName, confirmadoPor: d.confirmadoPor||'',
+      lineas: d.items.length, ts: d.ts, tsMs: d.tsMs
+    }));
+    const existing = (await safeGet('deliveries_archive')) || [];
+    const combined = existing.concat(resumen).sort((a,b)=>(b.tsMs||0)-(a.tsMs||0));
+    state.deliveriesArchive = combined;
+    safeSet('deliveries_archive', combined);
+  }
   function saveNotifications(){ safeSet('notifications', state.notifications.slice(0,100)); }
   function saveUbicaciones(){ safeSet('ubicaciones', state.ubicaciones); }
 
@@ -1490,6 +1519,18 @@
   }
 
   // pone o cambia la categoría a mano, útil para artículos importados sin ella
+  function changeArticulo(id){
+    const item = state.catalog.find(m => m.id === id);
+    if(!item) return;
+    const val = prompt('Artículo para '+item.code+':', item.desc || '');
+    if(val === null) return;
+    const texto = val.trim();
+    if(!texto){ showStatus('El artículo no puede quedar vacío.'); return; }
+    item.desc = texto;
+    saveCatalog();
+    render();
+  }
+
   function changeCategoria(id){
     const item = state.catalog.find(m => m.id === id);
     if(!item) return;
@@ -2020,11 +2061,9 @@
     const matches = findAllByCode(code);
 
     if(matches.length === 0){
-      if(state.mode === 'almacen'){
+      if(state.mode === 'almacen' || state.mode === 'pedido'){
         pendingUnknownCode = {code};
         renderScannerZone();
-      }else if(state.mode === 'pedido'){
-        showStatus('El código "'+code+'" no está en el stock, así que no se puede añadir al pedido.');
       }else{
         // no existe en stock — se añade igual como línea sin referencia, para que
         // almacén le asigne la referencia real más adelante
@@ -2780,6 +2819,7 @@
           <span class="stock-qty ${m.qty>0?'ok':'low'}">${m.qty}</span>
           <button class="cam-btn" style="padding:9px 14px; font-size:13px; min-height:38px;" data-globalsearch-loc="${m.id}">Cambiar ubicación</button>
           <button class="cam-btn" style="padding:9px 14px; font-size:13px; min-height:38px;" data-globalsearch-qty="${m.id}">Cambiar cantidad</button>
+          <button class="cam-btn" style="padding:9px 14px; font-size:13px; min-height:38px;" data-globalsearch-art="${m.id}">Editar artículo</button>
         </div>
       </div>
     `).join('') + (matches.length>15 ? `<div style="padding:6px 4px; color:var(--text-faint); font-size:11.5px;">+${matches.length-15} más… afina la búsqueda.</div>` : '');
@@ -2788,6 +2828,9 @@
     });
     box.querySelectorAll('[data-globalsearch-qty]').forEach(btn=>{
       btn.addEventListener('click', ()=> changeQuantity(btn.dataset.globalsearchQty));
+    });
+    box.querySelectorAll('[data-globalsearch-art]').forEach(btn=>{
+      btn.addEventListener('click', ()=> changeArticulo(btn.dataset.globalsearchArt));
     });
   }
 
@@ -3111,6 +3154,7 @@
           <span class="stock-loc ${m.location?'set':'unset'}">${esc(m.location) || 'Sin ubicar'}</span>
           ${m.categoria ? `<span class="stock-loc set">Cat: ${esc(m.categoria)}</span>` : ''}
           <span class="stock-qty ${m.qty>0?'ok':'low'}">${m.qty}</span>
+          <button class="cam-btn" style="padding:9px 14px; font-size:13px; min-height:38px;" data-art-btn="${m.id}">Editar artículo</button>
           <button class="cam-btn" style="padding:9px 14px; font-size:13px; min-height:38px;" data-qty-btn="${m.id}">Cambiar cantidad</button>
           <button class="cam-btn" style="padding:9px 14px; font-size:13px; min-height:38px;" data-cost-btn="${m.id}">${m.coste?'Coste: '+m.coste.toFixed(2)+'€':'+ Coste'}</button>
           <button class="cam-btn" style="padding:9px 14px; font-size:13px; min-height:38px;" data-label-btn="${m.id}">Etiqueta</button>
@@ -3271,6 +3315,9 @@
 
     el.querySelectorAll('[data-loc-btn]').forEach(btn=>{
       btn.addEventListener('click', ()=> changeLocation(btn.dataset.locBtn));
+    });
+    el.querySelectorAll('[data-art-btn]').forEach(btn=>{
+      btn.addEventListener('click', ()=> changeArticulo(btn.dataset.artBtn));
     });
     el.querySelectorAll('[data-qty-btn]').forEach(btn=>{
       btn.addEventListener('click', ()=> changeQuantity(btn.dataset.qtyBtn));
