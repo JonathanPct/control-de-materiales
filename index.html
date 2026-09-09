@@ -100,7 +100,7 @@
     border-color:var(--accent);
     box-shadow:inset 0 1px 3px rgba(0,0,0,0.25), 0 0 0 3px var(--accent-soft);
   }
-  html,body{margin:0;padding:0;min-height:100vh; overflow-x:hidden; max-width:100%; background:#0D0E10;}
+  html,body{margin:0;padding:0;min-height:100vh; overflow-x:hidden; overflow-y:visible; max-width:100%; background:#0D0E10;}
   html.tema-claro,html.tema-claro body{background:#E9E5D8;}
   body{
     font-family:"Rajdhani",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
@@ -169,6 +169,9 @@
     padding:4px;
     gap:4px;
     margin-bottom:14px;
+    position:sticky;
+    top:0;
+    z-index:40;
   }
   .mode-btn{
     flex:1;
@@ -626,10 +629,15 @@
     padding:8px 12px;
     border-radius:7px;
     margin-bottom:12px;
+    background:var(--success-soft);
+    color:var(--success);
+    border:1px solid var(--success);
+    display:none;
+  }
+  .status-banner.error{
     background:var(--danger-soft);
     color:var(--danger);
     border:1px solid var(--danger);
-    display:none;
   }
 
   .alert-banner{
@@ -807,11 +815,12 @@
   <div id="pedidoNotifBanner"></div>
   <datalist id="ubicacionesList"></datalist>
 
+  <div class="mode-bar" id="modeBar"></div>
+
   <div id="globalSearchZone"></div>
 
   <div id="statusBanner" class="status-banner"></div>
 
-  <div class="mode-bar" id="modeBar"></div>
   <div id="projectBar"></div>
   <div id="scannerZone"></div>
 
@@ -1160,6 +1169,11 @@
   // segundo parámetro opcional: función de deshacer, sale como botón junto al aviso
   function showStatus(msg, undoFn){
     const b = $('#statusBanner');
+    // si el mensaje empieza sonando a error o a "te falta rellenar esto", se marca en
+    // rojo de aviso; el resto (la mayoría, confirmaciones de que algo ha ido bien) usa
+    // un tono neutro — antes todo salía en rojo de alarma, incluso lo que iba bien
+    const esError = /^(No se pu|No he |Ya no hay|Falta |Indica |Escribe |Rellena |Configura |Selecciona |El .*no puede|El pedido está vacío|La solicitud está vacía|La orden\/proyecto|Ese código no existe|Solo quedan|Formato no soportado|Tu navegador no soporta|Esa ubicación ya está|Error )/i.test(msg);
+    b.className = 'status-banner' + (esError ? ' error' : '');
     b.innerHTML = esc(msg) + (undoFn ? ' <button id="undoBtn" class="btn-return" style="margin-left:8px; padding:3px 9px; font-size:11px;">Deshacer</button>' : '');
     b.style.display = 'block';
     if(undoFn){
@@ -1931,7 +1945,10 @@
   function askQty(label){
     const val = prompt('¿Cuántas unidades de "'+label+'"?', '1');
     if(val === null) return null;
-    return Math.max(1, parseInt(val,10) || 1);
+    const qty = Math.max(1, parseInt(val,10) || 1);
+    // una cantidad muy alta suele ser un despiste al escribir (un cero de más) — se confirma antes de seguir
+    if(qty >= 1000 && !confirm('Has escrito '+qty+' unidades de "'+label+'" — ¿es correcto? Cancelar si ha sido un despiste al teclear.')) return null;
+    return qty;
   }
 
   // acción final ya con la referencia resuelta (única o elegida en el selector)
@@ -1989,10 +2006,15 @@
     if(state.mode === 'almacen'){
       const qty = askQty(label);
       if(qty === null) return;
-      adjustStock(item, qty, 'entrada', 'Almacén (escaneo)');
+      if(modoAlmacenScan === 'salida' && qty > item.qty){
+        showStatus('Solo quedan '+item.qty+' unidad(es) de "'+label+'" — no se puede sacar más de eso.');
+        return;
+      }
+      adjustStock(item, qty, modoAlmacenScan, 'Almacén (escaneo)');
       if(!item.categoria) changeCategoria(item.id); // sin categoría todavía, se pregunta ahora que se le mete cantidad
-      showStatus('Entrada registrada: +'+qty+' · '+label, ()=>{
-        adjustStock(item, qty, 'salida', 'Deshacer entrada');
+      const inverso = modoAlmacenScan === 'entrada' ? 'salida' : 'entrada';
+      showStatus((modoAlmacenScan==='entrada'?'Entrada registrada: +':'Salida registrada: -')+qty+' · '+label, ()=>{
+        adjustStock(item, qty, inverso, 'Deshacer '+modoAlmacenScan);
         render();
       });
       render();
@@ -2170,11 +2192,21 @@
   async function selectGroup(kind, name){
     state.current[kind] = name || null;
     listView = 'servido';
+    // el aviso emergente de la orden/proyecto anterior no tiene sentido aquí
+    clearTimeout(showStatus._t);
+    const banner = $('#statusBanner');
+    if(banner) banner.style.display = 'none';
     if(name){
       const key = kind+'::'+name;
       if(!state.groupData[key]){
         const gd = await safeGet('group_'+kind+'_'+slug(name));
         state.groupData[key] = gd ? Object.assign(emptyGroupData(), gd) : emptyGroupData(); // así los datos antiguos sin 'pendiente' no petan
+      }
+      // resumen rápido al entrar, para ver de un vistazo si hay algo sin recoger
+      const target = state.groupData[key];
+      if(target && target.pendiente.items.length){
+        const totalUds = target.pendiente.items.reduce((a,it)=>a+it.qty,0);
+        showStatus('Esta '+(kind==='montaje'?'orden':'este proyecto')+' tiene '+target.pendiente.items.length+' línea(s) sin recoger ('+totalUds+' uds).');
       }
     }
     saveAppState();
@@ -2199,7 +2231,14 @@
   function toggleGroupStatus(kind, name){
     const g = findGroup(kind, name);
     if(!g) return;
-    g.status = g.status === 'finalizado' ? 'activo' : 'finalizado';
+    const seraFinalizado = g.status !== 'finalizado';
+    if(seraFinalizado){
+      const target = state.groupData[kind+'::'+name];
+      if(target && target.pendiente.items.length){
+        if(!confirm('Todavía hay '+target.pendiente.items.length+' línea(s) en la solicitud pendiente de recoger, sin firmar. Si finalizas ahora, es fácil que se quede olvidada. ¿Finalizar de todos modos?')) return;
+      }
+    }
+    g.status = seraFinalizado ? 'finalizado' : 'activo';
     saveGroups(kind);
     render();
   }
@@ -2657,6 +2696,8 @@
     const confirmBtn = $('#confirmDeliveryBtn');
     if(confirmBtn) confirmBtn.onclick = () => {
       if(!sigHasStrokes){ showStatus('Falta la firma — hay que firmar antes de confirmar la entrega.'); return; }
+      if(confirmBtn.disabled) return; // evita que un doble toque dispare esto dos veces
+      confirmBtn.disabled = true;
       state.pendingDelivery.recipientName = (nameInput.value || '').trim();
       const canvas = $('#signatureCanvas');
       confirmDelivery(canvas.toDataURL('image/png'));
@@ -2760,6 +2801,10 @@
   // ---------- Render ----------
   function render(){
     if(state.mode === 'almacen' && getUserRole() === 'taller') state.mode = 'montaje'; // taller no entra aquí, ni de rebote
+    // si se acaba de entrar en Almacén viniendo de otra sección, vuelve a "Entrada" siempre —
+    // así nunca se arrastra un "Salida" que se dejó puesto sin darse cuenta en otro momento
+    if(state.mode === 'almacen' && modoAnteriorParaReset !== 'almacen') modoAlmacenScan = 'entrada';
+    modoAnteriorParaReset = state.mode;
     const appEl = document.getElementById('app');
     if(appEl) appEl.className = 'mode-' + state.mode + (appEl.classList.contains('tema-claro') ? ' tema-claro' : ''); // se conserva el tema al cambiar de sección
     renderAlertBanner();
@@ -2917,6 +2962,11 @@
         pendingUnknownCode = null;
         pendingCodeChoice = null;
         listView = 'servido';
+        // el aviso emergente (con su "Deshacer") es de la sección anterior — no tiene
+        // sentido dejarlo flotando encima de la sección nueva
+        clearTimeout(showStatus._t);
+        const banner = $('#statusBanner');
+        if(banner) banner.style.display = 'none';
         saveAppState();
         render();
       });
@@ -2993,19 +3043,29 @@
       : state.mode==='pedido' ? 'Escanea o introduce el código para añadirlo al pedido…'
       : 'Escanea o introduce el código para añadirlo a la solicitud…';
     const hint = state.mode==='almacen'
-      ? 'Suma al stock. Material nuevo: pide referencia.'
+      ? (modoAlmacenScan==='entrada' ? 'Suma al stock. Material nuevo: pide referencia.' : 'Resta del stock — no deja bajar de 0.')
       : state.mode==='pedido'
       ? 'Añade al pedido — no descuenta stock.'
       : 'Va a la solicitud pendiente — no descuenta stock aún.';
-    const submitLabel = state.mode==='almacen' ? '+ Entrada' : state.mode==='pedido' ? '+ Añadir' : '+ Solicitar';
+    const submitLabel = state.mode==='almacen' ? (modoAlmacenScan==='entrada'?'+ Entrada':'− Salida') : state.mode==='pedido' ? '+ Añadir' : '+ Solicitar';
+    const colorScanAlmacen = state.mode==='almacen' ? (modoAlmacenScan==='entrada' ? 'var(--success)' : 'var(--danger)') : '';
     zone.innerHTML = `
-      <div class="scanner-panel">
+      <div class="scanner-panel" style="${state.mode==='almacen' ? `border-left:6px solid ${colorScanAlmacen}; background:linear-gradient(90deg, ${modoAlmacenScan==='entrada'?'var(--success-soft)':'var(--danger-soft)'}, transparent 220px);` : ''}">
         ${groupKind && target ? `
           <input type="text" id="requesterNameInput" placeholder="¿Quién lo pide? (obligatorio para poder escanear)" value="${esc(target.pendiente.requesterName)}" style="width:100%; margin-bottom:${faltaSolicitante?'4px':'8px'}; background:var(--bg-raised); border:1px solid ${target.pendiente.requesterName?'var(--border)':'var(--danger)'}; color:var(--text-primary); padding:11px 12px; border-radius:8px; font-size:14px;">
           ${faltaSolicitante ? `<div style="color:var(--danger); font-size:12px; font-weight:600; margin-bottom:8px;">Escribe aquí quién hace la solicitud y pulsa fuera del campo — el escáner está bloqueado hasta entonces.</div>` : ''}
         ` : ''}
+        ${state.mode==='almacen' ? `
+          <div style="font-family:'Big Shoulders Display','Arial Narrow',Arial,sans-serif; font-weight:800; font-size:20px; text-transform:uppercase; letter-spacing:.03em; color:${colorScanAlmacen}; margin-bottom:8px;">
+            Modo activo: ${modoAlmacenScan==='entrada' ? 'ENTRADA (suma al stock)' : 'SALIDA (resta del stock)'}
+          </div>
+          <div class="scanner-row" style="margin-bottom:8px;">
+            <button class="mode-btn" data-almacen-scan-modo="entrada" style="flex:1; padding:12px; font-size:15px; ${modoAlmacenScan==='entrada'?'background:var(--success); color:#0A2016;':'background:var(--bg-panel); border:1px solid var(--border);'}">+ ENTRADA</button>
+            <button class="mode-btn" data-almacen-scan-modo="salida" style="flex:1; padding:12px; font-size:15px; ${modoAlmacenScan==='salida'?'background:var(--danger); color:#2A0C10;':'background:var(--bg-panel); border:1px solid var(--border);'}">− SALIDA</button>
+          </div>
+        ` : ''}
         <div class="scanner-row">
-          <input id="scanInput" type="text" placeholder="${placeholder}" ${disabled?'disabled':''} autocomplete="off">
+          <input id="scanInput" type="text" placeholder="${placeholder}" ${disabled?'disabled':''} autocomplete="off" style="${state.mode==='almacen' ? `border-color:${colorScanAlmacen};` : ''}">
         </div>
         <div class="scanner-actions">
           <button class="cam-btn" id="camBtn" ${disabled?'disabled':''}>Cámara</button>
@@ -3062,6 +3122,12 @@
         persistCurrentTarget();
       });
     }
+    zone.querySelectorAll('[data-almacen-scan-modo]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        modoAlmacenScan = btn.dataset.almacenScanModo;
+        renderScannerZone();
+      });
+    });
     const input = $('#scanInput');
     if(input){
       input.addEventListener('keydown', e => {
@@ -3081,6 +3147,11 @@
         input.focus({preventScroll: true});
         setTimeout(()=>{ input.removeAttribute('readonly'); }, 50);
       }
+      // si alguien toca el campo a propósito para escribir a mano, esto fuerza que
+      // el teclado salga de verdad — un toque directo del usuario sí cuenta como
+      // gesto válido para que el móvil lo abra, a diferencia del enfoque automático de arriba
+      input.addEventListener('touchstart', () => { input.blur(); input.focus(); }, {passive:true});
+      input.addEventListener('mousedown', () => { input.blur(); input.focus(); });
     }
     const submitBtn = $('#scanSubmitBtn');
     if(submitBtn) submitBtn.addEventListener('click', ()=>{
@@ -3122,6 +3193,8 @@
     return state.current.proyecto ? 'Proyecto: '+esc(state.current.proyecto) : 'Proyecto';
   }
 
+  let modoAlmacenScan = 'entrada'; // 'entrada' suma, 'salida' resta — se elige antes de escanear
+  let modoAnteriorParaReset = null; // para saber si se acaba de entrar en Almacén desde otra sección
   let stockFiltroCategoria = ''; // '' = todas
   let stockFiltroBajo = false;
   let stockFiltroSinUbicar = false;
@@ -3720,7 +3793,11 @@
       });
     });
     const saveHojaBtn = $('#saveHojaPedidoBtn');
-    if(saveHojaBtn) saveHojaBtn.addEventListener('click', saveHojaPedido);
+    if(saveHojaBtn) saveHojaBtn.addEventListener('click', ()=>{
+      if(saveHojaBtn.disabled) return; // evita duplicar el aviso si se pulsa dos veces seguidas
+      saveHojaBtn.disabled = true;
+      saveHojaPedido();
+    });
     const addFreeTextBtn = $('#addFreeTextBtn');
     if(addFreeTextBtn) addFreeTextBtn.addEventListener('click', addTextoLibreAPendiente);
     el.querySelectorAll('[data-asignar-ref]').forEach(btn=>{

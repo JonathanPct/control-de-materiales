@@ -265,3 +265,9 @@ Ningún sitio de la app depende solo del color para decir algo — siempre va ac
 
 - **Corregido un fallo real**: el tour inicial y el botón "Ayuda" ya estaban programados pero nunca se activaban — les faltaba la conexión final. Ahora sí: quien entra por primera vez ve el repaso corto de la app automáticamente, y el botón "Ayuda" (junto al de tema) lo vuelve a abrir cuando quieras.
 - **Imprimir etiqueta de código de barras**: botón "Etiqueta" en cada artículo del stock. Genera el código de barras (formato CODE128, a partir del propio Código) y abre el diálogo de impresión del navegador, mostrando solo la etiqueta — el resto de la pantalla no sale en el papel. La librería que dibuja el código de barras solo se descarga la primera vez que se usa este botón, no antes.
+
+## 19. Rendimiento: firmas de entrega y repintados en tiempo real
+
+- **Corregido un riesgo real**: las firmas de entrega se guardaban como imagen, hasta 200 de ellas juntas en el mismo documento de Firestore — con ese límite se podía llegar al máximo de 1MB por documento y que dejaran de guardarse firmas nuevas sin avisar. Ahora se guardan las 40 más recientes con la firma completa, y las más antiguas se archivan como un resumen (quién, cuándo, cuántas líneas) sin la imagen, que es lo que realmente ocupaba espacio.
+- **Repintados agrupados**: si llegan varios cambios en tiempo real casi a la vez (por ejemplo, de otro dispositivo tocando el stock y los movimientos casi a la vez), ahora se juntan en un solo repintado de la pantalla en vez de uno por cada documento que cambia.
+- Quedan dos ideas más pequeñas sobre la mesa (actualizar solo la fila que cambia en vez de las 80 visibles, y cargar menos movimientos de golpe al abrir la app) que, con los ajustes ya hechos hasta ahora, aportan bastante menos margen de mejora — no compensan el riesgo de tocar código por una ganancia tan pequeña.
