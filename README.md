@@ -275,3 +275,13 @@ Ningún sitio de la app depende solo del color para decir algo — siempre va ac
 ## 20. Un solo botón "Editar" en vez de seis
 
 Cada artículo del stock tenía 6 botones distintos para cambiar 6 datos distintos (artículo, referencia, ubicación, categoría, coste, características) — cada uno abría su propio cuadro. Ahora hay un único botón **"Editar"** que abre un formulario con todos esos campos juntos: se cambia lo que haga falta y se guarda todo de una vez. Los botones que quedan sueltos son los que son acciones de verdad distintas, no solo datos: **Cambiar cantidad** (mueve stock), **Etiqueta** (imprime), **+ Otra referencia** (crea un artículo nuevo) y **Eliminar**.
+
+## 21. Botones más cómodos y aviso de sin conexión
+
+- **Botones a 44px de alto** en toda la app (antes muchos estaban en 38px) — el mínimo recomendado para tocar bien, sobre todo con guantes.
+- **Aviso de "sin conexión"**: si se corta el internet a media faena, ahora aparece un aviso claro en rojo arriba de todo diciendo que los cambios se siguen guardando en el dispositivo pero no se están sincronizando con los demás — antes esto pasaba en completo silencio, sin que hubiera forma de saber que se había cortado la sincronización. En cuanto vuelve la conexión, avisa también de eso.
+
+## 22. Sonido al escanear, modo rápido, y letra ajustable
+
+- **Pitido al escanear con éxito**: un tono corto y agudo, distinto del de "pedido nuevo", para poder trabajar sin mirar la pantalla todo el rato. Se puede apagar en Almacén → Avisos si molesta.
+- **Modo rápido (x1)**: casilla junto al escáner, en cualquier sección — si se activa, cada escaneo cuenta como 1 unidad directamente, sin preguntar cantidad. Útil para tandas de artículos sueltos.

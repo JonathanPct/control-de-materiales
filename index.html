@@ -449,7 +449,7 @@
     font-size:11.5px;
     font-weight:700;
     padding:9px 14px;
-    min-height:38px;
+    min-height:44px;
     border-radius:6px;
     cursor:pointer;
     white-space:nowrap;
@@ -656,6 +656,18 @@
     border:1px solid var(--accent-dim);
   }
 
+  #offlineBanner{
+    font-size:13px;
+    font-weight:700;
+    padding:10px 14px;
+    border-radius:8px;
+    margin-bottom:12px;
+    background:var(--danger-soft);
+    color:var(--danger);
+    border:1px solid var(--danger);
+    text-align:center;
+  }
+
   .global-search{
     background:var(--bg-panel);
     border:1px solid var(--border);
@@ -822,6 +834,7 @@
 
   <div id="alertBanner" class="alert-banner" style="display:none;"></div>
   <div id="pedidoNotifBanner"></div>
+  <div id="offlineBanner" style="display:none;"></div>
   <datalist id="ubicacionesList"></datalist>
 
   <div id="globalSearchZone"></div>
@@ -946,6 +959,24 @@
   let idsNotificadosConSonido = new Set();
   if('Notification' in window && Notification.permission === 'default'){
     Notification.requestPermission();
+  }
+  // pitido corto al escanear con éxito — distinto del de "pedido nuevo" (un solo tono,
+  // más agudo y más corto), para poder trabajar escaneando sin mirar la pantalla todo el rato
+  function reproducirSonidoEscaneoOk(){
+    if(!state.settings.sonidoEscaneo) return;
+    try{
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = 1400;
+      gain.gain.setValueAtTime(0.2, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.08);
+    }catch(e){}
   }
   function reproducirSonidoAviso(){
     try{
@@ -1136,6 +1167,7 @@
     deliveriesArchive: [],        // resumen (sin la imagen de firma) de entregas antiguas ya archivadas
     settings: {               // esto lo configuro yo mismo desde el panel de avisos
       bobinaAvisoDias: 3,     // con cuántos días de margen quiero que me avise antes de la fecha de devolución
+      sonidoEscaneo: true,    // pitido corto al escanear con éxito — se puede apagar si molesta
       stockBajoUmbral: 2,     // a partir de qué cantidad considero que el stock está bajo
       avisoHora: 18,          // hora (24h) a partir de la cual se hace la comprobación de fin de día
       emailDestino: ''
@@ -1197,6 +1229,26 @@
     clearTimeout(showStatus._t);
     showStatus._t = setTimeout(()=>{ b.style.display='none'; }, 8000);
   }
+
+  // aviso de "sin conexión" — sin esto, si se corta el internet a media faena, la app
+  // sigue funcionando en local (no se pierde nada) pero no avisaba de que había dejado
+  // de sincronizar con los demás dispositivos, y eso podía pasar horas sin notarse
+  function actualizarBannerConexion(){
+    const banner = $('#offlineBanner');
+    if(!banner) return;
+    if(navigator.onLine){
+      if(banner.style.display !== 'none'){
+        banner.textContent = 'Conexión recuperada — sincronizando de nuevo.';
+        setTimeout(()=>{ banner.style.display = 'none'; }, 3000);
+      }
+    }else{
+      banner.textContent = 'Sin conexión — los cambios se guardan en este dispositivo, pero no se están sincronizando con los demás hasta que vuelva la conexión.';
+      banner.style.display = 'block';
+    }
+  }
+  window.addEventListener('online', actualizarBannerConexion);
+  window.addEventListener('offline', actualizarBannerConexion);
+  if(!navigator.onLine) actualizarBannerConexion();
 
   // ---------- Storage: Firestore > window.storage > localStorage ----------
   const hasCloudStorage = (typeof window.storage !== 'undefined') && (typeof window.storage.get === 'function');
@@ -1996,6 +2048,7 @@
 
   // pregunta la cantidad una vez resuelta la referencia; si cancela, devuelve null
   function askQty(label){
+    if(modoRapidoX1) return 1;
     const val = prompt('¿Cuántas unidades de "'+label+'"?', '1');
     if(val === null) return null;
     const qty = Math.max(1, parseInt(val,10) || 1);
@@ -2055,6 +2108,7 @@
   }
 
   function proceedWithItem(item){
+    reproducirSonidoEscaneoOk();
     const label = item.code+' — '+item.desc;
     if(state.mode === 'almacen'){
       const qty = askQty(label);
@@ -2915,8 +2969,8 @@
         <div class="row-actions">
           <span class="stock-loc ${m.location?'set':'unset'}">${esc(m.location)||'Sin ubicar'}</span>
           <span class="stock-qty ${m.qty>0?'ok':'low'}">${m.qty}</span>
-          <button class="cam-btn" style="padding:9px 14px; font-size:13px; min-height:38px;" data-globalsearch-qty="${m.id}">Cambiar cantidad</button>
-          <button class="cam-btn" style="padding:9px 14px; font-size:13px; min-height:38px;" data-globalsearch-edit="${m.id}">Editar</button>
+          <button class="cam-btn" style="padding:9px 14px; font-size:13px; min-height:44px;" data-globalsearch-qty="${m.id}">Cambiar cantidad</button>
+          <button class="cam-btn" style="padding:9px 14px; font-size:13px; min-height:44px;" data-globalsearch-edit="${m.id}">Editar</button>
         </div>
       </div>
     `).join('') + (matches.length>15 ? `<div style="padding:6px 4px; color:var(--text-faint); font-size:11.5px;">+${matches.length-15} más… afina la búsqueda.</div>` : '');
@@ -3120,6 +3174,9 @@
           <button class="cam-btn" id="camBtn" ${disabled?'disabled':''}>Cámara</button>
           <button class="btn primary" id="scanSubmitBtn" ${disabled?'disabled':''}>${submitLabel}</button>
         </div>
+        <label style="display:flex; align-items:center; gap:6px; margin-top:8px; font-size:12px; color:var(--text-muted); cursor:pointer;">
+          <input type="checkbox" id="modoRapidoX1Chk" ${modoRapidoX1?'checked':''} style="width:16px; height:16px;"> Modo rápido: cada escaneo cuenta como 1 unidad, sin preguntar
+        </label>
         <div class="scan-hint">${hint}</div>
         ${pendingUnknownCode ? `
           <div class="unknown-box">
@@ -3176,6 +3233,10 @@
         modoAlmacenScan = btn.dataset.almacenScanModo;
         renderScannerZone();
       });
+    });
+    const modoRapidoChk = $('#modoRapidoX1Chk');
+    if(modoRapidoChk) modoRapidoChk.addEventListener('change', e=>{
+      modoRapidoX1 = e.target.checked;
     });
     const input = $('#scanInput');
     if(input){
@@ -3243,6 +3304,7 @@
   }
 
   let modoAlmacenScan = 'entrada'; // 'entrada' suma, 'salida' resta — se elige antes de escanear
+  let modoRapidoX1 = false; // si está activo, cada escaneo cuenta como 1 unidad sin preguntar
   let modoAnteriorParaReset = null; // para saber si se acaba de entrar en Almacén desde otra sección
   let stockFiltroCategoria = ''; // '' = todas
   let stockFiltroBajo = false;
@@ -3276,11 +3338,11 @@
           <span class="stock-loc ${m.location?'set':'unset'}">${esc(m.location) || 'Sin ubicar'}</span>
           ${m.categoria ? `<span class="stock-loc set">Cat: ${esc(m.categoria)}</span>` : ''}
           <span class="stock-qty ${m.qty>0?'ok':'low'}">${m.qty}</span>
-          <button class="cam-btn" style="padding:9px 14px; font-size:13px; min-height:38px;" data-edit-btn="${m.id}">Editar</button>
-          <button class="cam-btn" style="padding:9px 14px; font-size:13px; min-height:38px;" data-qty-btn="${m.id}">Cambiar cantidad</button>
-          <button class="cam-btn" style="padding:9px 14px; font-size:13px; min-height:38px;" data-label-btn="${m.id}">Etiqueta</button>
-          <button class="cam-btn" style="padding:9px 14px; font-size:13px; min-height:38px;" data-dup-btn="${esc(m.code)}">+ Otra referencia</button>
-          <button class="btn-return" style="padding:9px 14px; font-size:13px; min-height:38px;" data-del-btn="${m.id}">Eliminar</button>
+          <button class="cam-btn" style="padding:9px 14px; font-size:13px; min-height:44px;" data-edit-btn="${m.id}">Editar</button>
+          <button class="cam-btn" style="padding:9px 14px; font-size:13px; min-height:44px;" data-qty-btn="${m.id}">Cambiar cantidad</button>
+          <button class="cam-btn" style="padding:9px 14px; font-size:13px; min-height:44px;" data-label-btn="${m.id}">Etiqueta</button>
+          <button class="cam-btn" style="padding:9px 14px; font-size:13px; min-height:44px;" data-dup-btn="${esc(m.code)}">+ Otra referencia</button>
+          <button class="btn-return" style="padding:9px 14px; font-size:13px; min-height:44px;" data-del-btn="${m.id}">Eliminar</button>
         </div>
       </div>
     `).join('') + (items.length > itemsVisibles.length ? `
@@ -3511,7 +3573,7 @@
           </div>
           <div class="row-actions">
             <span class="stock-qty ${estado}">${dias<0?'Vencida: ':''}${b.expira}</span>
-            <button class="btn-return" style="padding:9px 14px; font-size:13px; min-height:38px;" data-bobina-del="${b.id}">Eliminar</button>
+            <button class="btn-return" style="padding:9px 14px; font-size:13px; min-height:44px;" data-bobina-del="${b.id}">Eliminar</button>
           </div>
         </div>
       `;
@@ -3905,6 +3967,9 @@
             <input type="number" id="setAvisoHora" min="0" max="23" value="${state.settings.avisoHora}">
             <label style="font-size:11.5px; color:var(--text-muted); margin-top:6px;">Correo al que quiero que me lleguen los avisos</label>
             <input type="email" id="setEmailDestino" placeholder="tu@email.com" value="${state.settings.emailDestino}">
+            <label style="display:flex; align-items:center; gap:6px; margin-top:8px; font-size:12.5px; color:var(--text-primary);">
+              <input type="checkbox" id="setSonidoEscaneo" ${state.settings.sonidoEscaneo?'checked':''} style="width:16px; height:16px;"> Pitido al escanear con éxito
+            </label>
             <button class="btn primary" id="saveSettingsBtn" style="margin-top:8px;">Guardar avisos</button>
           </div>
         </div>
@@ -3972,6 +4037,7 @@
       });
       $('#saveSettingsBtn').addEventListener('click', ()=>{
         state.settings.bobinaAvisoDias = Math.max(0, parseInt($('#setBobinaDias').value,10) || 0);
+        state.settings.sonidoEscaneo = $('#setSonidoEscaneo').checked;
         state.settings.stockBajoUmbral = Math.max(0, parseInt($('#setStockUmbral').value,10) || 0);
         state.settings.avisoHora = Math.min(23, Math.max(0, parseInt($('#setAvisoHora').value,10) || 0));
         state.settings.emailDestino = $('#setEmailDestino').value.trim();
