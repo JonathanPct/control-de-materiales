@@ -780,7 +780,7 @@
     h1{font-size:20px;}
     .subtitle{font-size:12px;}
     .mode-bar{padding:4px 8px; overflow-x:auto; -webkit-overflow-scrolling:touch;}
-    .mode-btn{font-size:13px; padding:14px 8px; letter-spacing:0; min-height:44px; flex:none; min-width:23%;}
+    .mode-btn{font-size:13px; padding:14px 8px; letter-spacing:0; min-height:44px; flex:1 1 0; min-width:60px;}
     .mode-btn .label-extra{display:none;}
     .project-bar{flex-direction:column; align-items:stretch;}
     .project-bar select, .project-bar input[type=text]{width:100%; min-width:0;}
@@ -861,13 +861,13 @@
 
   <div id="statusBanner" class="status-banner"></div>
 
-  <div id="projectBar"></div>
-  <div id="scannerZone"></div>
-
   <div class="cols">
     <div class="col-main" id="mainList"></div>
     <div class="col-side" id="sidePanel"></div>
   </div>
+
+  <div id="projectBar"></div>
+  <div id="scannerZone"></div>
 </div>
 
 <div id="camOverlay">
@@ -1811,6 +1811,19 @@
       state.pedidoItems.push({id:uid(), itemId:item.id, code:item.code, desc:item.desc, qty});
     }
     agregarMensajeChat(state.pedidoChat, 'Escaneado: '+item.code+' — '+item.desc+' · '+qty+' uds');
+    savePedidoChat();
+    savePedido();
+    render();
+  }
+
+  function enviarPeticionChatPedido(){
+    const inputTexto = $('#chatMensajeInput');
+    const inputQty = $('#chatCantidadInput');
+    const texto = inputTexto.value.trim();
+    if(!texto){ showStatus('Escribe qué hace falta antes de enviar.'); return; }
+    const qty = Math.max(1, parseInt(inputQty.value,10) || 1);
+    state.pedidoItems.push({id:uid(), itemId:null, code:'', desc:texto, qty});
+    agregarMensajeChat(state.pedidoChat, 'Pedido: '+texto+' · '+qty+' uds');
     savePedidoChat();
     savePedido();
     render();
@@ -3794,6 +3807,11 @@
       <div class="ticket">
         <div class="ticket-header"><span class="ticket-title">Chat</span></div>
         <div class="ticket-body">${renderChatMessages(state.pedidoChat)}</div>
+        <div style="display:flex; gap:6px; padding:10px 14px; border-top:1px solid var(--border);">
+          <input type="text" id="chatMensajeInput" placeholder="Describe qué hace falta pedir…" style="flex:2; min-width:0;">
+          <input type="number" id="chatCantidadInput" placeholder="Uds" min="1" value="1" style="flex:none; width:64px;">
+          <button class="btn primary" id="chatEnviarBtn" style="width:auto; flex:none;">Enviar</button>
+        </div>
       </div>
     ` : `
       <div class="ticket">
@@ -3811,6 +3829,12 @@
 
     el.querySelectorAll('[data-pedido-view]').forEach(btn=>{
       btn.addEventListener('click', ()=>{ pedidoView = btn.dataset.pedidoView; renderPedidoMain(); });
+    });
+    const chatEnviarBtnPedido = $('#chatEnviarBtn');
+    if(chatEnviarBtnPedido) chatEnviarBtnPedido.addEventListener('click', enviarPeticionChatPedido);
+    const chatMensajeInputPedido = $('#chatMensajeInput');
+    if(chatMensajeInputPedido) chatMensajeInputPedido.addEventListener('keydown', e=>{
+      if(e.key==='Enter'){ e.preventDefault(); enviarPeticionChatPedido(); }
     });
     el.querySelectorAll('[data-pedido-del]').forEach(btn=>{
       btn.addEventListener('click', ()=> removePedidoItem(btn.dataset.pedidoDel));
