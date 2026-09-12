@@ -1018,8 +1018,11 @@
     if(sharedAudioCtx.state === 'suspended') sharedAudioCtx.resume().catch(()=>{});
     return sharedAudioCtx;
   }
-  ['click','touchstart','keydown'].forEach(evt => {
-    document.addEventListener(evt, () => { getAudioCtx(); }, {once:true, passive:true});
+  // en móvil sobre todo, el navegador puede "re-suspender" el sonido solo, si la pestaña
+  // pasa un rato en segundo plano — por eso esto NO es de una sola vez ({once:true}), se
+  // re-intenta desbloquear en cada toque, para que esté listo cuando llegue un aviso solo
+  ['click','touchstart','keydown','visibilitychange'].forEach(evt => {
+    document.addEventListener(evt, () => { getAudioCtx(); }, {passive:true});
   });
 
   function reproducirSonidoAviso(){
