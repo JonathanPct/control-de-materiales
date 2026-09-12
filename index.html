@@ -1429,8 +1429,16 @@
     ['montaje','proyecto'].forEach(kind => {
       const name = state.current[kind];
       if(!name) return;
-      // fix: pasar por emptyGroupData() para no perder 'pendiente' en datos antiguos
-      watchKey('group_'+kind+'_'+slug(name), v => { state.groupData[kind+'::'+name] = Object.assign(emptyGroupData(), v); });
+      // se actualiza el objeto que YA está en memoria, en vez de sustituirlo por uno nuevo —
+      // si se reemplazaba la referencia entera, un cambio local hecho justo antes o después
+      // de que llegue esta actualización (por ejemplo, escribir en el chat) podía quedar
+      // "huérfano" en el objeto viejo, sin que la pantalla llegara a reflejarlo nunca
+      watchKey('group_'+kind+'_'+slug(name), v => {
+        const merged = Object.assign(emptyGroupData(), v);
+        const key = kind+'::'+name;
+        if(state.groupData[key]) Object.assign(state.groupData[key], merged);
+        else state.groupData[key] = merged;
+      });
     });
   }
 
