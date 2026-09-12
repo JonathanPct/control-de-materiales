@@ -279,6 +279,7 @@
     gap:8px;
     flex-wrap:wrap;
   }
+  .chat-tabs-row{display:flex; gap:6px; flex-wrap:wrap;}
   #scanInput{
     flex:1;
     min-width:200px;
@@ -786,6 +787,7 @@
     .project-bar select, .project-bar input[type=text]{width:100%; min-width:0;}
     .project-bar .pill-current{align-self:flex-start;}
     .scanner-row{flex-direction:column;}
+    .chat-tabs-row .mode-btn{flex:1 1 46%; font-size:12px; padding:10px 6px;}
     #scanInput{font-size:17px; min-width:0; width:100%;}
     .unknown-box{flex-direction:column; align-items:stretch;}
     .unknown-box input{width:100%;}
@@ -818,6 +820,10 @@
       padding:13px 10px;
       font-size:14px;
       font-weight:700;
+    }
+    .project-bar-inline .cam-btn, .project-bar-inline .btn-return{
+      width:auto !important;
+      flex:1;
     }
   }
 </style>
@@ -3197,14 +3203,21 @@
           <option value="">— Selecciona una orden o proyecto —</option>
           ${combinada.map(g=>`<option value="${g.kind}::${esc(g.name)}" ${g.kind===kind && g.name===currentName?'selected':''}>${g.kind==='montaje'?'Montaje':'Proyecto'}: ${esc(g.name)}${g.tipo?' ['+esc(g.tipo)+']':''}${g.status==='finalizado'?' (Finalizado)':''}</option>`).join('')}
         </select>
-        ${current?`
-          <span class="pill-current" style="${current.status==='finalizado'?'background:var(--bg-raised-2); color:var(--text-muted);':''}">${current.status==='finalizado'?'Finalizado':'Activo'}</span>
-          <span class="pill-current">${kind==='montaje'?'Montaje':'Proyecto'}</span>
-          ${current.tipo ? `<span class="pill-current">${esc(current.tipo)}</span>` : ''}
-          <button class="cam-btn" id="toggleStatusBtn">${current.status==='finalizado'?'Reactivar':'Finalizar'}</button>
-          <button class="btn-return" id="deleteGroupBtn">Eliminar</button>
-        `:''}
-        <button class="cam-btn" id="toggleNuevoTrabajoBtn">${mostrarFormNuevoTrabajo?'Cancelar':'+ Nueva orden/proyecto'}</button>
+      </div>
+      ${current ? `
+      <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; color:var(--text-faint); margin:-2px 0 8px 2px;">
+        <span style="color:${current.status==='finalizado'?'var(--text-muted)':'var(--success)'};">${current.status==='finalizado'?'Finalizado':'Activo'}</span>
+        <span>·</span>
+        <span>${kind==='montaje'?'Montaje':'Proyecto'}</span>
+        ${current.tipo ? `<span>·</span><span>${esc(current.tipo)}</span>` : ''}
+      </div>
+      <div class="project-bar project-bar-inline" style="margin-top:0;">
+        <button class="cam-btn" id="toggleStatusBtn" style="flex:1;">${current.status==='finalizado'?'Reactivar':'Finalizar'}</button>
+        <button class="btn-return" id="deleteGroupBtn" style="flex:1;">Eliminar</button>
+      </div>
+      ` : ''}
+      <div class="project-bar" style="margin-top:8px;">
+        <button class="cam-btn" id="toggleNuevoTrabajoBtn" style="flex:1;">${mostrarFormNuevoTrabajo?'Cancelar':'+ Nueva orden/proyecto'}</button>
       </div>
       ${mostrarFormNuevoTrabajo ? `
       <div class="project-bar" style="margin-top:8px;">
@@ -3892,7 +3905,7 @@
     ` : '';
 
     const tabs = `
-      <div class="scanner-row" style="margin-bottom:10px; flex-wrap:wrap;">
+      <div class="chat-tabs-row" style="margin-bottom:10px;">
         <button class="mode-btn" data-view="chat" style="flex:none; padding:8px 16px; ${listView==='chat'?'background:var(--accent); color:#150A28;':'background:var(--bg-panel); border:1px solid var(--border);'}">Chat</button>
         <button class="mode-btn" data-view="hoja" style="flex:none; padding:8px 16px; ${listView==='hoja'?'background:var(--accent); color:#150A28;':'background:var(--bg-panel); border:1px solid var(--border);'}">Hoja de pedido</button>
         ${esTaller ? '' : `

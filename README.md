@@ -307,3 +307,7 @@ Al escribir en el chat de una orden/proyecto y guardar, la app también escucha 
 ## 27. Selector de orden/proyecto integrado en el propio chat
 
 El selector de orden/proyecto y el formulario de "crear nueva" ya no viven en una barra aparte por encima del escáner — ahora forman parte del mismo bloque que el chat, justo debajo del buscador, sin nada más en medio. Se elige o crea la orden ahí mismo, y justo debajo aparece su chat, sin tener que mirar en otro sitio de la pantalla.
+
+## 28. Menos botones apilados en Trabajo
+
+Las tres etiquetas de estado (Activo, Montaje, Interno) que antes salían como tres cajas separadas ahora van en una sola línea de texto compacta. "Finalizar" y "Eliminar" se quedan uno junto al otro en vez de apilados, incluso en móvil. Las cuatro pestañas (Chat, Hoja de pedido, Servido, Devuelto) pasan a ocupar dos por fila en móvil en vez de una columna larga de cuatro. También se movió el resumen de "Solicitud pendiente de recoger" para que vaya después del chat, no en medio del selector y el chat — así el chat queda visible sin hacer scroll de más.
