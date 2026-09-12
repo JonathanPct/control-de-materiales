@@ -3161,6 +3161,8 @@
     });
   }
 
+  let mostrarFormNuevoTrabajo = false; // el formulario de "crear nuevo" empieza escondido, para no saturar la barra
+
   function renderGroupBar(){
     const zone = $('#projectBar');
     const enTrabajo = state.mode === 'montaje' || state.mode === 'proyecto';
@@ -3178,6 +3180,17 @@
           <option value="">— Selecciona una orden o proyecto —</option>
           ${combinada.map(g=>`<option value="${g.kind}::${esc(g.name)}" ${g.kind===kind && g.name===currentName?'selected':''}>${g.kind==='montaje'?'Montaje':'Proyecto'}: ${esc(g.name)}${g.tipo?' ['+esc(g.tipo)+']':''}${g.status==='finalizado'?' (Finalizado)':''}</option>`).join('')}
         </select>
+        ${current?`
+          <span class="pill-current" style="${current.status==='finalizado'?'background:var(--bg-raised-2); color:var(--text-muted);':''}">${current.status==='finalizado'?'Finalizado':'Activo'}</span>
+          <span class="pill-current">${kind==='montaje'?'Montaje':'Proyecto'}</span>
+          ${current.tipo ? `<span class="pill-current">${esc(current.tipo)}</span>` : ''}
+          <button class="cam-btn" id="toggleStatusBtn">${current.status==='finalizado'?'Reactivar':'Finalizar'}</button>
+          <button class="btn-return" id="deleteGroupBtn">Eliminar</button>
+        `:''}
+        <button class="cam-btn" id="toggleNuevoTrabajoBtn">${mostrarFormNuevoTrabajo?'Cancelar':'+ Nueva orden/proyecto'}</button>
+      </div>
+      ${mostrarFormNuevoTrabajo ? `
+      <div class="project-bar" style="margin-top:8px;">
         <input type="text" id="newGroupInput" placeholder="Nombre de la orden o proyecto…" value="${esc(newGroupDraft.nombre)}">
         <select id="newGroupKind">
           <option value="montaje" ${newGroupDraft.kind!=='proyecto'?'selected':''}>Montaje/Venta</option>
@@ -3190,14 +3203,8 @@
           <option value="Externo" ${newGroupDraft.tipo==='Externo'?'selected':''}>Externo</option>
         </select>
         <button class="cam-btn" id="createGroupBtn">+ Crear</button>
-        ${current?`
-          <span class="pill-current" style="${current.status==='finalizado'?'background:var(--bg-raised-2); color:var(--text-muted);':''}">${current.status==='finalizado'?'Finalizado':'Activo'}</span>
-          <span class="pill-current">${kind==='montaje'?'Montaje':'Proyecto'}</span>
-          ${current.tipo ? `<span class="pill-current">${esc(current.tipo)}</span>` : ''}
-          <button class="cam-btn" id="toggleStatusBtn">${current.status==='finalizado'?'Reactivar':'Finalizar'}</button>
-          <button class="btn-return" id="deleteGroupBtn">Eliminar</button>
-        `:''}
       </div>
+      ` : ''}
     `;
     $('#groupSelect').addEventListener('change', e => {
       const [pickedKind, pickedName] = e.target.value.split('::');
@@ -3206,7 +3213,13 @@
       state.mode = pickedKind;
       selectGroup(pickedKind, pickedName);
     });
-    $('#newGroupInput').addEventListener('input', e => { newGroupDraft.nombre = e.target.value; });
+    $('#toggleNuevoTrabajoBtn').addEventListener('click', ()=>{
+      mostrarFormNuevoTrabajo = !mostrarFormNuevoTrabajo;
+      renderGroupBar();
+    });
+    const newGroupInput = $('#newGroupInput');
+    if(!newGroupInput) return; // formulario escondido, nada más que conectar
+    newGroupInput.addEventListener('input', e => { newGroupDraft.nombre = e.target.value; });
     $('#newGroupKind').addEventListener('change', e => { newGroupDraft.kind = e.target.value; });
     $('#newGroupRequester').addEventListener('input', e => { newGroupDraft.requester = e.target.value; });
     $('#newGroupTipo').addEventListener('change', e => { newGroupDraft.tipo = e.target.value; });
@@ -3219,6 +3232,7 @@
       if(!requester){ showStatus('Indica quién pide el material — es obligatorio.'); return; }
       if(!tipo){ showStatus('Indica si el material es interno o externo — es obligatorio.'); return; }
       newGroupDraft = {nombre:'', requester:'', tipo:'', kind: pickedKind}; // borrador limpio, ya se ha creado
+      mostrarFormNuevoTrabajo = false;
       ultimoKindTrabajo = pickedKind;
       state.mode = pickedKind;
       createGroup(pickedKind, nombre, requester, tipo);
@@ -3813,7 +3827,10 @@
       return;
     }
     const esTaller = getUserRole() === 'taller';
-    if(esTaller) listView = 'hoja'; // taller solo trabaja con la Hoja de pedido
+    // taller no tiene botones de Servido/Devuelto (se ocultan más abajo) — si por lo que
+    // sea listView se queda en uno de esos, se cae a Hoja; Chat sigue disponible para taller,
+    // que es quien más lo va a usar para escribir peticiones
+    if(esTaller && (listView === 'servido' || listView === 'devuelto')) listView = 'hoja';
 
     const pendienteHtml = target.pendiente.items.length ? `
       <div class="ticket" style="margin-bottom:14px; border-color:var(--accent);">
@@ -4268,7 +4285,7 @@
     el.innerHTML = planHtml + `
       <div class="panel">
         <p class="panel-title">Resumen</p>
-        <div class="stat-row"><span>Solicitud pendiente</span><span class="num">${target.pendiente.items.reduce((a,it)=>a+it.qty,0)} uds</span></div>
+        <div class="stat-row"><span>Solicitud pendiente</span><span class="num">${target ? target.pendiente.items.reduce((a,it)=>a+it.qty,0) : 0} uds</span></div>
         <div class="stat-row"><span>Unidades servidas</span><span class="num">${totalServido}</span></div>
         <div class="stat-row"><span>Unidades devueltas</span><span class="num">${totalDevuelto}</span></div>
         <div class="stat-row"><span>Referencias en stock</span><span class="num">${state.catalog.length}</span></div>
