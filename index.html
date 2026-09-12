@@ -245,6 +245,26 @@
     font-size:14px;
   }
 
+  .chat-feed{display:flex; flex-direction:column; gap:8px; padding:4px 0;}
+  .chat-bubble{
+    align-self:flex-start;
+    max-width:85%;
+    background:var(--bg-raised);
+    color:var(--text-primary);
+    padding:8px 12px;
+    border-radius:10px 10px 10px 2px;
+    font-size:13px;
+  }
+  .chat-bubble.chat-bubble-accent{
+    align-self:flex-end;
+    background:var(--accent);
+    color:#181A1F;
+    font-weight:600;
+    border-radius:10px 10px 2px 10px;
+  }
+  .chat-bubble-meta{font-size:10.5px; color:var(--text-faint); margin-top:3px;}
+  .chat-bubble.chat-bubble-accent .chat-bubble-meta{color:rgba(0,0,0,0.55);}
+
   /* Scanner */
   .scanner-panel{
     background:var(--bg-panel);
@@ -1160,6 +1180,7 @@
     groupData: {},            // clave "montaje::Nombre" / "proyecto::Nombre" -> emptyGroupData()
     bobinas: [],              // [{id, desc, matricula, expira:'YYYY-MM-DD', createdAt}]
     pedidoItems: [],          // [{id, code, desc, qty}] - el listado que voy montando para pedir material
+    pedidoChat: [],           // [{id, texto, ts, tsMs}] - el mismo chat que en Trabajo, pero para Pedido
     pendingDelivery: null,    // {items:[...], recipientName} - el pedido ya congelado, esperando la firma
     deliveries: [],            // [{id, items, recipientName, signature, ts, tsMs}] - entregas ya firmadas
     notifications: [],          // [{id, groupKind, groupName, requesterName, ts, tsMs, leida}] - avisos de "hay un pedido nuevo"
@@ -1180,17 +1201,17 @@
   let stockPageSize = 80; // con inventarios grandes, pintar todo de golpe es lo que más lagea
   let globalSearchTerm = ''; // el buscador de arriba de todo, funciona en cualquier sección
   let selectedStockIds = new Set(); // referencias marcadas en Almacén para acciones en bloque
-  let newGroupDraft = {nombre:'', requester:'', tipo:''}; // lo que se va escribiendo al crear una orden/proyecto, para que no se borre con un repintado de fondo
+  let newGroupDraft = {nombre:'', requester:'', tipo:'', kind:'montaje'}; // lo que se va escribiendo al crear una orden/proyecto, para que no se borre con un repintado de fondo
   let cablesSearchTerm = ''; // buscador dentro del panel de Cables y mangueras
   const CATEGORIAS_STOCK = ['Material eléctrico', 'Material hidráulico', 'Manguera o cable', 'Artículos para cuadros'];
-  let listView = 'servido'; // 'servido' | 'devuelto' — which sub-list is shown in Montaje/Proyecto
+  let listView = 'chat'; // 'chat' | 'hoja' | 'servido' | 'devuelto' — which sub-view is shown in Trabajo
   const GROUP_LABELS = { montaje: 'orden', proyecto: 'proyecto' };
   const GROUP_LABELS_CAP = { montaje: 'Orden', proyecto: 'Proyecto' };
 
   const $ = sel => document.querySelector(sel);
   const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2,7);
   // forma por defecto de los datos de una orden/proyecto
-  function emptyGroupData(){ return {servido:[], devuelto:[], pendiente:{requesterName:'', items:[]}}; }
+  function emptyGroupData(){ return {servido:[], devuelto:[], pendiente:{requesterName:'', items:[]}, chat:[]}; }
 
   // ejemplos de ficha, no referencias reales — de ahí el prefijo "EJEMPLO-"
   const nowStr = () => new Date().toLocaleString('es-ES');
@@ -1308,16 +1329,17 @@
   }
 
   async function loadAll(){
-    const [catalog, movements, groupsMontaje, groupsProyecto, oldLists, oldProjects, appState, bobinas, settings, alerts, pedidoItems, movementsArchive, deliveries, notifications, ubicaciones, deliveriesArchive] = await Promise.all([
+    const [catalog, movements, groupsMontaje, groupsProyecto, oldLists, oldProjects, appState, bobinas, settings, alerts, pedidoItems, movementsArchive, deliveries, notifications, ubicaciones, deliveriesArchive, pedidoChat] = await Promise.all([
       safeGet('catalog'), safeGet('movements'), safeGet('groups_montaje'), safeGet('groups_proyecto'),
       safeGet('lists'), safeGet('projects'), safeGet('app_state'),
-      safeGet('bobinas'), safeGet('settings'), safeGet('alerts_state'), safeGet('pedido_items'), safeGet('movements_archive'), safeGet('deliveries'), safeGet('notifications'), safeGet('ubicaciones'), safeGet('deliveries_archive')
+      safeGet('bobinas'), safeGet('settings'), safeGet('alerts_state'), safeGet('pedido_items'), safeGet('movements_archive'), safeGet('deliveries'), safeGet('notifications'), safeGet('ubicaciones'), safeGet('deliveries_archive'), safeGet('pedido_chat')
     ]);
     if(catalog) state.catalog = catalog.map(m => ({id:m.id||uid(), code:m.code, desc:m.desc, qty: typeof m.qty==='number'?m.qty:0, location:m.location||'', specs:m.specs||'', marca:m.marca||'', referencia:m.referencia||'', categoria:m.categoria||'', coste:typeof m.coste==='number'?m.coste:0}));
     if(movements) state.movements = movements;
     if(movementsArchive) state.movementsArchive = movementsArchive;
     if(bobinas) state.bobinas = bobinas;
     if(pedidoItems) state.pedidoItems = pedidoItems;
+    if(pedidoChat) state.pedidoChat = pedidoChat;
     if(deliveries) state.deliveries = deliveries;
     if(notifications) state.notifications = notifications;
     if(ubicaciones) state.ubicaciones = ubicaciones;
@@ -1446,6 +1468,32 @@
   function saveGroupData(kind, name){ safeSet('group_'+kind+'_'+slug(name), state.groupData[kind+'::'+name]); }
   function saveBobinas(){ safeSet('bobinas', state.bobinas); }
   function savePedido(){ safeSet('pedido_items', state.pedidoItems); }
+  function savePedidoChat(){ safeSet('pedido_chat', state.pedidoChat.slice(-200)); } // con las 200 últimas de sobra
+
+  // añade un mensaje al chat (de una orden/proyecto, o al de Pedido) y lo guarda —
+  // función compartida para no repetir la misma lógica en los dos sitios
+  function agregarMensajeChat(chatArray, texto){
+    chatArray.push({id:uid(), texto, ts:nowStr(), tsMs:Date.now(), usuario:currentUserEmail()});
+    if(chatArray.length > 300) chatArray.splice(0, chatArray.length - 300); // no crece sin límite
+  }
+
+  // hilo de chat compartido — usado tanto en Trabajo (por orden/proyecto) como en Pedido.
+  // "opciones.target" + "opciones.puedeAsociar" activan el botón "Asociar" en Trabajo (solo Almacén)
+  function renderChatMessages(chatArray, opciones){
+    opciones = opciones || {};
+    if(!chatArray.length) return '<div class="empty-state">Todavía no hay nada — escanea o escribe algo para empezar.</div>';
+    return '<div class="chat-feed">' + chatArray.map(m => {
+      const pendienteSinResolver = opciones.target && m.pendienteId && opciones.target.pendiente.items.find(it => it.id === m.pendienteId && it.textoLibre);
+      return `
+      <div class="chat-bubble ${/guardad|confirmad|enviad|vaciad|Asociado/i.test(m.texto)?'chat-bubble-accent':''}">
+        ${esc(m.texto)}
+        <div class="chat-bubble-meta">${m.ts}${m.usuario?' · '+esc(m.usuario):''}</div>
+        ${pendienteSinResolver && opciones.puedeAsociar ? `<button class="cam-btn" data-asociar-chat="${m.pendienteId}" style="margin-top:6px; padding:6px 10px; font-size:11px; min-height:auto;">Asociar</button>` : ''}
+      </div>
+    `;
+    }).join('') + '</div>';
+  }
+
   function saveDeliveries(){
     // las firmas pesan (son una imagen) — con muchas guardadas se podía llegar al
     // límite de 1MB por documento de Firestore y dejar de guardarse sin avisar.
@@ -1762,12 +1810,17 @@
     }else{
       state.pedidoItems.push({id:uid(), itemId:item.id, code:item.code, desc:item.desc, qty});
     }
+    agregarMensajeChat(state.pedidoChat, 'Escaneado: '+item.code+' — '+item.desc+' · '+qty+' uds');
+    savePedidoChat();
     savePedido();
     render();
   }
 
   function removePedidoItem(id){
+    const it = state.pedidoItems.find(p => p.id === id);
     state.pedidoItems = state.pedidoItems.filter(it => it.id !== id);
+    if(it) agregarMensajeChat(state.pedidoChat, 'Quitado del pedido: '+it.code+' — '+it.desc);
+    savePedidoChat();
     savePedido();
     render();
   }
@@ -1776,6 +1829,8 @@
     if(!state.pedidoItems.length) return;
     if(!confirm('¿Vaciar el pedido? Se perderá el listado actual.')) return;
     state.pedidoItems = [];
+    agregarMensajeChat(state.pedidoChat, 'Pedido vaciado');
+    savePedidoChat();
     savePedido();
     render();
   }
@@ -1803,6 +1858,7 @@
     if(!target) return;
     // se marca como guardado — a partir de aquí, taller ya no puede editar estas líneas
     target.pendiente.items.forEach(it => { it.guardado = true; it.fechaGuardado = nowStr(); });
+    agregarMensajeChat(target.chat, 'Hoja de pedido guardada y avisada a almacén ('+target.pendiente.items.length+' línea(s))');
     persistCurrentTarget();
 
     if(target.pendiente.items.length){
@@ -1898,6 +1954,7 @@
       adjustStock(item, it.qty, 'salida', origen);
     });
     // vacío la solicitud pendiente de esa orden/proyecto, ya se ha convertido en servido
+    agregarMensajeChat(target.chat, 'Recogida confirmada y firmada por '+(state.pendingDelivery.recipientName||'sin especificar')+' ('+state.pendingDelivery.items.length+' línea(s))');
     target.pendiente = {requesterName:'', items:[]};
     safeSet('group_'+state.pendingDelivery.groupKind+'_'+slug(state.pendingDelivery.groupName), target);
 
@@ -2063,10 +2120,27 @@
     const existente = target.pendiente.items.find(it => it.itemId === item.id);
     if(existente){ existente.qty += qty; }
     else target.pendiente.items.push({id:uid(), itemId:item.id, code:item.code, desc:item.desc, referencia:item.referencia||'', qty, pedido:0, reserva:0});
+    agregarMensajeChat(target.chat, 'Escaneado: '+item.code+' — '+item.desc+' · '+qty+' uds');
   }
 
   // línea sin referencia real — solo un texto describiendo lo que hace falta; almacén
   // le asigna la referencia de verdad más adelante con asignarReferencia()
+  function enviarPeticionChat(){
+    const target = currentTarget();
+    if(!target) return;
+    const inputTexto = $('#chatMensajeInput');
+    const inputQty = $('#chatCantidadInput');
+    const texto = inputTexto.value.trim();
+    if(!texto){ showStatus('Escribe qué hace falta antes de enviar.'); return; }
+    const qty = Math.max(1, parseInt(inputQty.value,10) || 1);
+    const nuevoId = uid();
+    target.pendiente.items.push({id:nuevoId, itemId:null, code:'', desc:'', referencia:'', textoLibre:texto, qty, pedido:0, reserva:0});
+    agregarMensajeChat(target.chat, 'Pedido: '+texto+' · '+qty+' uds (sin referencia todavía)');
+    target.chat[target.chat.length-1].pendienteId = nuevoId;
+    persistCurrentTarget();
+    render();
+  }
+
   function addTextoLibreAPendiente(){
     const target = currentTarget();
     if(!target) return;
@@ -2079,12 +2153,16 @@
     const qtyStr = prompt('¿Cuántas unidades hacen falta?', '1');
     if(qtyStr === null) return;
     const qty = Math.max(1, parseInt(qtyStr,10) || 1);
-    target.pendiente.items.push({id:uid(), itemId:null, code:'', desc:'', referencia:'', textoLibre:texto.trim(), qty, pedido:0, reserva:0});
+    const nuevoId = uid();
+    target.pendiente.items.push({id:nuevoId, itemId:null, code:'', desc:'', referencia:'', textoLibre:texto.trim(), qty, pedido:0, reserva:0});
+    agregarMensajeChat(target.chat, 'Pedido: '+texto.trim()+' · '+qty+' uds (sin referencia todavía)');
+    target.chat[target.chat.length-1].pendienteId = nuevoId; // para poder mostrar el botón "Asociar" en su burbuja
     persistCurrentTarget();
     render();
   }
 
   // almacén asigna una referencia real de stock a una línea que taller escribió sin saberla
+  // (o la crea de cero ahí mismo, aunque todavía no haya stock de ella)
   function asignarReferencia(pendienteId){
     const target = currentTarget();
     if(!target) return;
@@ -2094,14 +2172,18 @@
     if(!codigo || !codigo.trim()) return;
     let item = findInCatalog(codigo.trim());
     if(!item){
-      showStatus('Ese código no existe en el stock — date de alta el material en Almacén primero.');
-      return;
+      if(!confirm('El código "'+codigo.trim()+'" no existe todavía en el stock. ¿Darlo de alta ahora (con 0 unidades, se ajusta luego)?')) return;
+      const desc = prompt('Artículo para "'+codigo.trim()+'":', it.textoLibre) || it.textoLibre;
+      item = {id:uid(), code:codigo.trim(), desc:desc.trim(), qty:0, location:'', specs:'', marca:'', referencia:'', categoria:'', coste:0};
+      state.catalog.push(item);
+      saveCatalog();
     }
     it.itemId = item.id;
     it.code = item.code;
     it.desc = item.desc;
     it.referencia = item.referencia || '';
     delete it.textoLibre;
+    agregarMensajeChat(target.chat, 'Asociado a '+item.code+' — '+item.desc);
     persistCurrentTarget();
     render();
     showStatus('Referencia asignada: '+item.code+' — '+item.desc);
@@ -2298,7 +2380,7 @@
 
   async function selectGroup(kind, name){
     state.current[kind] = name || null;
-    listView = 'servido';
+    listView = 'chat';
     // el aviso emergente de la orden/proyecto anterior no tiene sentido aquí
     clearTimeout(showStatus._t);
     const banner = $('#statusBanner');
@@ -3051,20 +3133,23 @@
     render();
   }
 
+  let ultimoKindTrabajo = 'montaje'; // qué tipo (montaje/proyecto) se muestra al entrar en "Trabajo"
+
   function renderModeBar(){
     const bar = $('#modeBar');
     const esTaller = getUserRole() === 'taller';
-    const modes = [['montaje','Montaje','/Venta'],['almacen','Almacén',' (Stock)'],['proyecto','Proyecto',''],['pedido','Pedido','']]
+    const enTrabajo = state.mode === 'montaje' || state.mode === 'proyecto';
+    const modes = [['trabajo','Trabajo',''],['almacen','Almacén',' (Stock)'],['pedido','Pedido','']]
       .filter(([k]) => !(esTaller && k==='almacen')); // taller no ve Almacén, ni falta que le hace
     bar.innerHTML = modes.map(([k,corto,extra]) =>
-      `<button class="mode-btn ${state.mode===k?'active':''}" data-mode="${k}">${corto}<span class="label-extra">${extra}</span></button>`
+      `<button class="mode-btn ${(k==='trabajo'?enTrabajo:state.mode===k)?'active':''}" data-mode="${k}">${corto}<span class="label-extra">${extra}</span></button>`
     ).join('');
     bar.querySelectorAll('.mode-btn').forEach(btn=>{
       btn.addEventListener('click', ()=>{
-        state.mode = btn.dataset.mode;
+        state.mode = btn.dataset.mode === 'trabajo' ? ultimoKindTrabajo : btn.dataset.mode;
         pendingUnknownCode = null;
         pendingCodeChoice = null;
-        listView = 'servido';
+        listView = 'chat';
         // el aviso emergente (con su "Deshacer") es de la sección anterior — no tiene
         // sentido dejarlo flotando encima de la sección nueva
         clearTimeout(showStatus._t);
@@ -3078,19 +3163,26 @@
 
   function renderGroupBar(){
     const zone = $('#projectBar');
-    const kind = state.mode; // 'montaje' | 'proyecto'
-    if(kind !== 'montaje' && kind !== 'proyecto'){ zone.innerHTML=''; return; }
+    const enTrabajo = state.mode === 'montaje' || state.mode === 'proyecto';
+    if(!enTrabajo){ zone.innerHTML=''; return; }
+    const kind = state.mode; // el tipo del elemento actualmente seleccionado, si hay uno
     const currentName = state.current[kind];
     const current = currentName ? findGroup(kind, currentName) : null;
-    const newLabel = kind==='montaje' ? 'Nueva orden…' : 'Nuevo proyecto…';
-    const selectLabel = kind==='montaje' ? '— Selecciona una orden —' : '— Selecciona un proyecto —';
+    // lista combinada de montaje + proyecto, cada opción recuerda su propio tipo
+    const combinada = state.groups.montaje.map(g=>({...g, kind:'montaje'}))
+      .concat(state.groups.proyecto.map(g=>({...g, kind:'proyecto'})))
+      .sort((a,b)=>a.name.localeCompare(b.name));
     zone.innerHTML = `
       <div class="project-bar">
         <select id="groupSelect">
-          <option value="">${selectLabel}</option>
-          ${state.groups[kind].map(g=>`<option value="${esc(g.name)}" ${g.name===currentName?'selected':''}>${esc(g.name)}${g.tipo?' ['+esc(g.tipo)+']':''}${g.status==='finalizado'?' (Finalizado)':''}</option>`).join('')}
+          <option value="">— Selecciona una orden o proyecto —</option>
+          ${combinada.map(g=>`<option value="${g.kind}::${esc(g.name)}" ${g.kind===kind && g.name===currentName?'selected':''}>${g.kind==='montaje'?'Montaje':'Proyecto'}: ${esc(g.name)}${g.tipo?' ['+esc(g.tipo)+']':''}${g.status==='finalizado'?' (Finalizado)':''}</option>`).join('')}
         </select>
-        <input type="text" id="newGroupInput" placeholder="${newLabel}" value="${esc(newGroupDraft.nombre)}">
+        <input type="text" id="newGroupInput" placeholder="Nombre de la orden o proyecto…" value="${esc(newGroupDraft.nombre)}">
+        <select id="newGroupKind">
+          <option value="montaje" ${newGroupDraft.kind!=='proyecto'?'selected':''}>Montaje/Venta</option>
+          <option value="proyecto" ${newGroupDraft.kind==='proyecto'?'selected':''}>Proyecto</option>
+        </select>
         <input type="text" id="newGroupRequester" placeholder="¿Quién pide el material?" value="${esc(newGroupDraft.requester)}">
         <select id="newGroupTipo">
           <option value="" ${!newGroupDraft.tipo?'selected':''}>¿Interno o externo?</option>
@@ -3100,25 +3192,36 @@
         <button class="cam-btn" id="createGroupBtn">+ Crear</button>
         ${current?`
           <span class="pill-current" style="${current.status==='finalizado'?'background:var(--bg-raised-2); color:var(--text-muted);':''}">${current.status==='finalizado'?'Finalizado':'Activo'}</span>
+          <span class="pill-current">${kind==='montaje'?'Montaje':'Proyecto'}</span>
           ${current.tipo ? `<span class="pill-current">${esc(current.tipo)}</span>` : ''}
           <button class="cam-btn" id="toggleStatusBtn">${current.status==='finalizado'?'Reactivar':'Finalizar'}</button>
           <button class="btn-return" id="deleteGroupBtn">Eliminar</button>
         `:''}
       </div>
     `;
-    $('#groupSelect').addEventListener('change', e => selectGroup(kind, e.target.value));
+    $('#groupSelect').addEventListener('change', e => {
+      const [pickedKind, pickedName] = e.target.value.split('::');
+      if(!pickedKind) return;
+      ultimoKindTrabajo = pickedKind;
+      state.mode = pickedKind;
+      selectGroup(pickedKind, pickedName);
+    });
     $('#newGroupInput').addEventListener('input', e => { newGroupDraft.nombre = e.target.value; });
+    $('#newGroupKind').addEventListener('change', e => { newGroupDraft.kind = e.target.value; });
     $('#newGroupRequester').addEventListener('input', e => { newGroupDraft.requester = e.target.value; });
     $('#newGroupTipo').addEventListener('change', e => { newGroupDraft.tipo = e.target.value; });
     const tryCreate = () => {
       const nombre = $('#newGroupInput').value;
+      const pickedKind = $('#newGroupKind').value;
       const requester = $('#newGroupRequester').value.trim();
       const tipo = $('#newGroupTipo').value;
-      if(!nombre.trim()){ showStatus('Escribe el nombre de '+(kind==='montaje'?'la orden':'el proyecto')+'.'); return; }
-      if(!requester){ showStatus('Indica quién pide el material para esta '+(kind==='montaje'?'orden':'este proyecto')+' — es obligatorio.'); return; }
+      if(!nombre.trim()){ showStatus('Escribe el nombre de la orden o proyecto.'); return; }
+      if(!requester){ showStatus('Indica quién pide el material — es obligatorio.'); return; }
       if(!tipo){ showStatus('Indica si el material es interno o externo — es obligatorio.'); return; }
-      newGroupDraft = {nombre:'', requester:'', tipo:''}; // borrador limpio, ya se ha creado
-      createGroup(kind, nombre, requester, tipo);
+      newGroupDraft = {nombre:'', requester:'', tipo:'', kind: pickedKind}; // borrador limpio, ya se ha creado
+      ultimoKindTrabajo = pickedKind;
+      state.mode = pickedKind;
+      createGroup(pickedKind, nombre, requester, tipo);
     };
     $('#createGroupBtn').addEventListener('click', tryCreate);
     $('#newGroupInput').addEventListener('keydown', e => { if(e.key==='Enter'){ e.preventDefault(); tryCreate(); } });
@@ -3650,6 +3753,8 @@
   }
 
 
+  let pedidoView = 'chat'; // 'chat' | 'lista' — qué se muestra en Pedido
+
   function renderPedidoMain(){
     if(state.mode !== 'pedido') return; // mismo motivo que en renderStockMain — evita pisar otra sección
     const el = $('#mainList');
@@ -3664,7 +3769,19 @@
       </div>
     `).join('');
 
-    el.innerHTML = `
+    const tabs = `
+      <div class="scanner-row" style="margin-bottom:10px; flex-wrap:wrap;">
+        <button class="mode-btn" data-pedido-view="chat" style="flex:none; padding:8px 16px; ${pedidoView==='chat'?'background:var(--accent); color:#2A0800;':'background:var(--bg-panel); border:1px solid var(--border);'}">Chat</button>
+        <button class="mode-btn" data-pedido-view="lista" style="flex:none; padding:8px 16px; ${pedidoView==='lista'?'background:var(--accent); color:#2A0800;':'background:var(--bg-panel); border:1px solid var(--border);'}">Lista (${state.pedidoItems.length})</button>
+      </div>
+    `;
+
+    const bodyHtml = pedidoView === 'chat' ? `
+      <div class="ticket">
+        <div class="ticket-header"><span class="ticket-title">Chat</span></div>
+        <div class="ticket-body">${renderChatMessages(state.pedidoChat)}</div>
+      </div>
+    ` : `
       <div class="ticket">
         <div class="ticket-header">
           <span class="ticket-title">Pedido de materiales</span>
@@ -3676,6 +3793,11 @@
       </div>
     `;
 
+    el.innerHTML = tabs + bodyHtml;
+
+    el.querySelectorAll('[data-pedido-view]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{ pedidoView = btn.dataset.pedidoView; renderPedidoMain(); });
+    });
     el.querySelectorAll('[data-pedido-del]').forEach(btn=>{
       btn.addEventListener('click', ()=> removePedidoItem(btn.dataset.pedidoDel));
     });
@@ -3717,6 +3839,7 @@
 
     const tabs = `
       <div class="scanner-row" style="margin-bottom:10px; flex-wrap:wrap;">
+        <button class="mode-btn" data-view="chat" style="flex:none; padding:8px 16px; ${listView==='chat'?'background:var(--accent); color:#150A28;':'background:var(--bg-panel); border:1px solid var(--border);'}">Chat</button>
         <button class="mode-btn" data-view="hoja" style="flex:none; padding:8px 16px; ${listView==='hoja'?'background:var(--accent); color:#150A28;':'background:var(--bg-panel); border:1px solid var(--border);'}">Hoja de pedido</button>
         ${esTaller ? '' : `
         <button class="mode-btn" data-view="servido" style="flex:none; padding:8px 16px; ${listView==='servido'?'background:var(--accent); color:#150A28;':'background:var(--bg-panel); border:1px solid var(--border);'}">Servido (${target.servido.length})</button>
@@ -3726,7 +3849,23 @@
     `;
 
     let bodyHtml;
-    if(listView === 'hoja'){
+    if(listView === 'chat'){
+      bodyHtml = `
+        <div class="ticket">
+          <div class="ticket-header">
+            <span class="ticket-title">Chat</span>
+          </div>
+          <div class="ticket-body">${renderChatMessages(target.chat, {target, puedeAsociar: !esTaller})}</div>
+          ${target.pendiente.requesterName ? `
+          <div style="display:flex; gap:6px; padding:10px 14px; border-top:1px solid var(--border);">
+            <input type="text" id="chatMensajeInput" placeholder="Describe lo que hace falta…" style="flex:2; min-width:0;">
+            <input type="number" id="chatCantidadInput" placeholder="Uds" min="1" value="1" style="flex:none; width:64px;">
+            <button class="btn primary" id="chatEnviarBtn" style="width:auto; flex:none;">Enviar</button>
+          </div>
+          ` : `<div style="padding:10px 14px; color:var(--text-faint); font-size:12px;">Indica "¿Quién lo pide?" arriba para poder escribir en el chat.</div>`}
+        </div>
+      `;
+    }else if(listView === 'hoja'){
       // misma tabla que el Excel, pero editable — lo servido queda fijo como registro
       const ot = state.current[state.mode] || '';
       const filasPendientes = target.pendiente.items.map(it => ({
@@ -3865,6 +4004,15 @@
         listView = btn.dataset.view;
         renderMainList();
       });
+    });
+    const chatEnviarBtn = $('#chatEnviarBtn');
+    if(chatEnviarBtn) chatEnviarBtn.addEventListener('click', enviarPeticionChat);
+    const chatMensajeInput = $('#chatMensajeInput');
+    if(chatMensajeInput) chatMensajeInput.addEventListener('keydown', e=>{
+      if(e.key==='Enter'){ e.preventDefault(); enviarPeticionChat(); }
+    });
+    el.querySelectorAll('[data-asociar-chat]').forEach(btn=>{
+      btn.addEventListener('click', ()=> asignarReferencia(btn.dataset.asociarChat));
     });
     el.querySelectorAll('[data-return-btn]').forEach(btn=>{
       btn.addEventListener('click', ()=>{

@@ -285,3 +285,9 @@ Cada artículo del stock tenía 6 botones distintos para cambiar 6 datos distint
 
 - **Pitido al escanear con éxito**: un tono corto y agudo, distinto del de "pedido nuevo", para poder trabajar sin mirar la pantalla todo el rato. Se puede apagar en Almacén → Avisos si molesta.
 - **Modo rápido (x1)**: casilla junto al escáner, en cualquier sección — si se activa, cada escaneo cuenta como 1 unidad directamente, sin preguntar cantidad. Útil para tandas de artículos sueltos.
+
+## 23. Montaje y Proyecto unificados, y chat en Trabajo y Pedido
+
+- **Montaje/Venta y Proyecto pasan a ser una sola pestaña, "Trabajo"**. Al crear una orden o proyecto, se elige el tipo en un desplegable nuevo. Por dentro, cada uno se sigue guardando exactamente igual que antes (no hubo ninguna migración de datos, ni falta que hacía) — solo cambia cómo se llega hasta ahí desde la pantalla. El selector ahora muestra órdenes y proyectos juntos, cada uno con su etiqueta.
+- **Chat**: tanto en Trabajo (por cada orden/proyecto) como en Pedido, hay una pestaña nueva "Chat" — un hilo con lo que se va escaneando, en orden, además de avisos como "Hoja guardada", "Recogida confirmada y firmada" o "Pedido vaciado". Es la vista que sale por defecto al entrar. La tabla de siempre (Hoja de pedido / Lista) sigue existiendo tal cual, en su propia pestaña, para imprimir o repasar de un vistazo — el chat no la sustituye, conviven las dos.
+- **Se puede escribir en el chat de Trabajo**, no solo escanear — una caja de texto con cantidad, para pedir algo aunque no sepas la referencia. Ese mensaje queda como una línea "sin referencia todavía" en la solicitud. **Solo Almacén** ve un botón **"Asociar"** en esas burbujas, para enlazarlo con una referencia real del stock — y si esa referencia no existe todavía, la puede dar de alta ahí mismo (con 0 unidades, se ajusta la cantidad después). Taller no ve ese botón en ningún caso.
