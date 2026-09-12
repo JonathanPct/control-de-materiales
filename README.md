@@ -311,3 +311,12 @@ El selector de orden/proyecto y el formulario de "crear nueva" ya no viven en un
 ## 28. Menos botones apilados en Trabajo
 
 Las tres etiquetas de estado (Activo, Montaje, Interno) que antes salían como tres cajas separadas ahora van en una sola línea de texto compacta. "Finalizar" y "Eliminar" se quedan uno junto al otro en vez de apilados, incluso en móvil. Las cuatro pestañas (Chat, Hoja de pedido, Servido, Devuelto) pasan a ocupar dos por fila en móvil en vez de una columna larga de cuatro. También se movió el resumen de "Solicitud pendiente de recoger" para que vaya después del chat, no en medio del selector y el chat — así el chat queda visible sin hacer scroll de más.
+
+## 29. Finalizar/Eliminar solo para Almacén, y aviso al enviar por chat
+
+- **"Finalizar" y "Eliminar"** una orden o proyecto ya solo aparecen para Almacén — Taller no los ve.
+- **Al enviar algo por el chat**, si quien lo escribe es Taller, se avisa a Almacén igual que al guardar la Hoja de pedido: aviso dentro de la app (con su pitido, en cualquier dispositivo que tenga la app abierta) y correo si está configurado.
+
+## 30. Corregido un fallo real: el sonido no sonaba en el dispositivo que recibe el aviso
+
+El pitido de aviso creaba un `AudioContext` nuevo cada vez. Si en ese dispositivo no había habido ningún clic o toque justo antes (que es exactamente lo que pasa cuando el aviso llega solo, por los datos, desde otro dispositivo), el navegador dejaba ese `AudioContext` "suspendido" en silencio — sin ningún error, así que no había forma de notar por qué no sonaba. Ahora se usa un único `AudioContext` compartido que se desbloquea con la primera vez que tocas cualquier cosa de la app en toda la sesión, así los avisos que llegan más tarde por su cuenta sí pueden sonar.

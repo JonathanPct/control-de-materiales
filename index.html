@@ -990,7 +990,8 @@
   function reproducirSonidoEscaneoOk(){
     if(!state.settings.sonidoEscaneo) return;
     try{
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const ctx = getAudioCtx();
+      if(!ctx) return;
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'sine';
@@ -1003,9 +1004,28 @@
       osc.stop(ctx.currentTime + 0.08);
     }catch(e){}
   }
+  // AudioContext compartido — se "desbloquea" con la primera interacción del usuario en
+  // toda la sesión (un clic o toque en cualquier sitio). Los avisos que llegan solos por
+  // Firestore (sin que estés tocando nada justo en ese momento, como cuando Taller te
+  // avisa desde otro dispositivo) necesitan esto: si se crea un AudioContext nuevo sin
+  // desbloquear antes, el navegador lo deja "suspendido" en silencio y el sonido no llega
+  // a sonar — sin ningún error, así que es fácil no darse cuenta de por qué no suena
+  let sharedAudioCtx = null;
+  function getAudioCtx(){
+    if(!sharedAudioCtx){
+      try{ sharedAudioCtx = new (window.AudioContext || window.webkitAudioContext)(); }catch(e){ return null; }
+    }
+    if(sharedAudioCtx.state === 'suspended') sharedAudioCtx.resume().catch(()=>{});
+    return sharedAudioCtx;
+  }
+  ['click','touchstart','keydown'].forEach(evt => {
+    document.addEventListener(evt, () => { getAudioCtx(); }, {once:true, passive:true});
+  });
+
   function reproducirSonidoAviso(){
     try{
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const ctx = getAudioCtx();
+      if(!ctx) return;
       [0, 0.18].forEach(delay => {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
@@ -2164,6 +2184,21 @@
     agregarMensajeChat(target.chat, 'Pedido: '+texto+' · '+qty+' uds (sin referencia todavía)');
     target.chat[target.chat.length-1].pendienteId = nuevoId;
     persistCurrentTarget();
+    // si quien escribe es taller, se avisa a almacén — mismo mecanismo que al guardar
+    // la Hoja de pedido (aviso en la app con sonido, y correo si está configurado)
+    if(getUserRole() === 'taller'){
+      const ot = state.current[state.mode];
+      const grupo = findGroup(state.mode, ot);
+      sendEmailAlert('Nueva petición por chat — '+ot, texto+' · '+qty+' uds\n\nPedido por: '+(target.pendiente.requesterName||'sin especificar'));
+      state.notifications.unshift({
+        id: uid(), groupKind: state.mode, groupName: ot,
+        requesterName: target.pendiente.requesterName || 'sin especificar',
+        tipo: grupo ? grupo.tipo||'' : '',
+        lineas: 1,
+        ts: nowStr(), tsMs: Date.now(), leida: false
+      });
+      saveNotifications();
+    }
     render();
   }
 
@@ -3211,10 +3246,12 @@
         <span>${kind==='montaje'?'Montaje':'Proyecto'}</span>
         ${current.tipo ? `<span>·</span><span>${esc(current.tipo)}</span>` : ''}
       </div>
+      ${getUserRole() === 'taller' ? '' : `
       <div class="project-bar project-bar-inline" style="margin-top:0;">
         <button class="cam-btn" id="toggleStatusBtn" style="flex:1;">${current.status==='finalizado'?'Reactivar':'Finalizar'}</button>
         <button class="btn-return" id="deleteGroupBtn" style="flex:1;">Eliminar</button>
       </div>
+      `}
       ` : ''}
       <div class="project-bar" style="margin-top:8px;">
         <button class="cam-btn" id="toggleNuevoTrabajoBtn" style="flex:1;">${mostrarFormNuevoTrabajo?'Cancelar':'+ Nueva orden/proyecto'}</button>
