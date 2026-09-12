@@ -4041,7 +4041,7 @@
       `;
     }
 
-    el.innerHTML = selectorHtml + pendienteHtml + tabs + bodyHtml;
+    el.innerHTML = selectorHtml + tabs + bodyHtml + pendienteHtml;
     wireTrabajoSelector(el);
 
     el.querySelectorAll('[data-pendiente-del]').forEach(btn=>{
