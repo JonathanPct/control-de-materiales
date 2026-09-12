@@ -303,3 +303,7 @@ Había una restricción de antes de que existiera el chat que forzaba siempre la
 ## 26. Corregido un fallo real de sincronización en tiempo real
 
 Al escribir en el chat de una orden/proyecto y guardar, la app también escucha esa misma orden por si cambia desde otro dispositivo. Ese "vigilante" sustituía por completo el objeto de la orden en memoria cada vez que recibía una confirmación de Firestore, en vez de actualizar el que ya había — así que si esto ocurría justo después de escribir un mensaje, el mensaje podía quedar en una copia ya descartada, sin llegar a verse en pantalla nunca, aunque la función que lo guarda estuviera bien. Ahora se actualiza el objeto que ya está en memoria en vez de reemplazarlo, evitando ese problema. Este fallo solo se manifestaba con Firebase real conectado, por eso no aparecía en las pruebas automáticas anteriores (que no usan una conexión real).
+
+## 27. Selector de orden/proyecto integrado en el propio chat
+
+El selector de orden/proyecto y el formulario de "crear nueva" ya no viven en una barra aparte por encima del escáner — ahora forman parte del mismo bloque que el chat, justo debajo del buscador, sin nada más en medio. Se elige o crea la orden ahí mismo, y justo debajo aparece su chat, sin tener que mirar en otro sitio de la pantalla.

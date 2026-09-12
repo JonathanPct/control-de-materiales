@@ -861,8 +861,6 @@
 
   <div id="statusBanner" class="status-banner"></div>
 
-  <div id="projectBar"></div>
-
   <div class="cols">
     <div class="col-main" id="mainList"></div>
     <div class="col-side" id="sidePanel"></div>
@@ -3022,7 +3020,6 @@
     renderPedidoNotifBanner();
     renderGlobalSearch();
     renderModeBar();
-    renderGroupBar();
     renderScannerZone();
     if(state.mode === 'almacen') renderStockMain();
     else if(state.mode === 'pedido') renderPedidoMain();
@@ -3185,18 +3182,16 @@
 
   let mostrarFormNuevoTrabajo = false; // el formulario de "crear nuevo" empieza escondido, para no saturar la barra
 
-  function renderGroupBar(){
-    const zone = $('#projectBar');
-    const enTrabajo = state.mode === 'montaje' || state.mode === 'proyecto';
-    if(!enTrabajo){ zone.innerHTML=''; return; }
+  // genera el HTML del selector/creador — ya no pinta en su propio hueco aparte,
+  // se inserta dentro del propio bloque del chat, para que todo vaya junto
+  function renderTrabajoSelectorHtml(){
     const kind = state.mode; // el tipo del elemento actualmente seleccionado, si hay uno
     const currentName = state.current[kind];
     const current = currentName ? findGroup(kind, currentName) : null;
-    // lista combinada de montaje + proyecto, cada opción recuerda su propio tipo
     const combinada = state.groups.montaje.map(g=>({...g, kind:'montaje'}))
       .concat(state.groups.proyecto.map(g=>({...g, kind:'proyecto'})))
       .sort((a,b)=>a.name.localeCompare(b.name));
-    zone.innerHTML = `
+    return `
       <div class="project-bar">
         <select id="groupSelect">
           <option value="">— Selecciona una orden o proyecto —</option>
@@ -3228,43 +3223,51 @@
       </div>
       ` : ''}
     `;
-    $('#groupSelect').addEventListener('change', e => {
+  }
+
+  // conecta los eventos del selector/creador — recibe el contenedor donde se insertó
+  // (ya no es un hueco fijo propio, así que busca dentro de ese contenedor, no global)
+  function wireTrabajoSelector(el){
+    const kind = state.mode;
+    const currentName = state.current[kind];
+    el.querySelector('#groupSelect').addEventListener('change', e => {
       const [pickedKind, pickedName] = e.target.value.split('::');
       if(!pickedKind) return;
       ultimoKindTrabajo = pickedKind;
       state.mode = pickedKind;
       selectGroup(pickedKind, pickedName);
     });
-    $('#toggleNuevoTrabajoBtn').addEventListener('click', ()=>{
+    el.querySelector('#toggleNuevoTrabajoBtn').addEventListener('click', ()=>{
       mostrarFormNuevoTrabajo = !mostrarFormNuevoTrabajo;
-      renderGroupBar();
+      render();
     });
-    const newGroupInput = $('#newGroupInput');
-    if(!newGroupInput) return; // formulario escondido, nada más que conectar
-    newGroupInput.addEventListener('input', e => { newGroupDraft.nombre = e.target.value; });
-    $('#newGroupKind').addEventListener('change', e => { newGroupDraft.kind = e.target.value; });
-    $('#newGroupRequester').addEventListener('input', e => { newGroupDraft.requester = e.target.value; });
-    $('#newGroupTipo').addEventListener('change', e => { newGroupDraft.tipo = e.target.value; });
-    const tryCreate = () => {
-      const nombre = $('#newGroupInput').value;
-      const pickedKind = $('#newGroupKind').value;
-      const requester = $('#newGroupRequester').value.trim();
-      const tipo = $('#newGroupTipo').value;
-      if(!nombre.trim()){ showStatus('Escribe el nombre de la orden o proyecto.'); return; }
-      if(!requester){ showStatus('Indica quién pide el material — es obligatorio.'); return; }
-      if(!tipo){ showStatus('Indica si el material es interno o externo — es obligatorio.'); return; }
-      newGroupDraft = {nombre:'', requester:'', tipo:'', kind: pickedKind}; // borrador limpio, ya se ha creado
-      mostrarFormNuevoTrabajo = false;
-      ultimoKindTrabajo = pickedKind;
-      state.mode = pickedKind;
-      createGroup(pickedKind, nombre, requester, tipo);
-    };
-    $('#createGroupBtn').addEventListener('click', tryCreate);
-    $('#newGroupInput').addEventListener('keydown', e => { if(e.key==='Enter'){ e.preventDefault(); tryCreate(); } });
-    $('#newGroupRequester').addEventListener('keydown', e => { if(e.key==='Enter'){ e.preventDefault(); tryCreate(); } });
-    const toggleBtn = $('#toggleStatusBtn');
+    const newGroupInput = el.querySelector('#newGroupInput');
+    if(newGroupInput){
+      newGroupInput.addEventListener('input', e => { newGroupDraft.nombre = e.target.value; });
+      el.querySelector('#newGroupKind').addEventListener('change', e => { newGroupDraft.kind = e.target.value; });
+      el.querySelector('#newGroupRequester').addEventListener('input', e => { newGroupDraft.requester = e.target.value; });
+      el.querySelector('#newGroupTipo').addEventListener('change', e => { newGroupDraft.tipo = e.target.value; });
+      const tryCreate = () => {
+        const nombre = el.querySelector('#newGroupInput').value;
+        const pickedKind = el.querySelector('#newGroupKind').value;
+        const requester = el.querySelector('#newGroupRequester').value.trim();
+        const tipo = el.querySelector('#newGroupTipo').value;
+        if(!nombre.trim()){ showStatus('Escribe el nombre de la orden o proyecto.'); return; }
+        if(!requester){ showStatus('Indica quién pide el material — es obligatorio.'); return; }
+        if(!tipo){ showStatus('Indica si el material es interno o externo — es obligatorio.'); return; }
+        newGroupDraft = {nombre:'', requester:'', tipo:'', kind: pickedKind};
+        mostrarFormNuevoTrabajo = false;
+        ultimoKindTrabajo = pickedKind;
+        state.mode = pickedKind;
+        createGroup(pickedKind, nombre, requester, tipo);
+      };
+      el.querySelector('#createGroupBtn').addEventListener('click', tryCreate);
+      newGroupInput.addEventListener('keydown', e => { if(e.key==='Enter'){ e.preventDefault(); tryCreate(); } });
+      el.querySelector('#newGroupRequester').addEventListener('keydown', e => { if(e.key==='Enter'){ e.preventDefault(); tryCreate(); } });
+    }
+    const toggleBtn = el.querySelector('#toggleStatusBtn');
     if(toggleBtn) toggleBtn.addEventListener('click', ()=> toggleGroupStatus(kind, currentName));
-    const delBtn = $('#deleteGroupBtn');
+    const delBtn = el.querySelector('#deleteGroupBtn');
     if(delBtn) delBtn.addEventListener('click', ()=> deleteGroup(kind, currentName));
   }
 
@@ -3853,10 +3856,11 @@
   function renderMainList(){
     if(state.mode !== 'montaje' && state.mode !== 'proyecto') return; // evita pisar otra sección
     const el = $('#mainList');
+    const selectorHtml = renderTrabajoSelectorHtml();
     const target = currentTarget();
     if(!target){
-      const what = state.mode==='montaje' ? 'una orden de montaje' : 'un proyecto';
-      el.innerHTML = `<div class="empty-state">Selecciona o crea ${what} en la barra superior para empezar a registrar material.</div>`;
+      el.innerHTML = selectorHtml + `<div class="empty-state">Selecciona una orden o proyecto arriba, o crea uno nuevo, para empezar a registrar material.</div>`;
+      wireTrabajoSelector(el);
       return;
     }
     const esTaller = getUserRole() === 'taller';
@@ -4037,7 +4041,8 @@
       `;
     }
 
-    el.innerHTML = pendienteHtml + tabs + bodyHtml;
+    el.innerHTML = selectorHtml + pendienteHtml + tabs + bodyHtml;
+    wireTrabajoSelector(el);
 
     el.querySelectorAll('[data-pendiente-del]').forEach(btn=>{
       btn.addEventListener('click', ()=>{
