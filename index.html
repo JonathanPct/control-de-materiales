@@ -222,20 +222,6 @@
   }
   .project-bar select{flex:1; min-width:140px;}
   .project-bar input[type=text]{flex:1; min-width:140px;}
-  .pill-current{
-    background:var(--accent-soft);
-    color:var(--accent);
-    border:1px solid var(--accent);
-    font-size:11px;
-    font-weight:700;
-    text-transform:uppercase;
-    letter-spacing:.06em;
-    padding:6px 12px;
-    border-radius:0;
-    clip-path:polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
-    white-space:nowrap;
-  }
-
   .empty-state{
     text-align:center;
     padding:40px 20px;
@@ -245,7 +231,7 @@
     font-size:14px;
   }
 
-  .chat-feed{display:flex; flex-direction:column; gap:8px; padding:4px 0;}
+  .chat-feed{display:flex; flex-direction:column; gap:8px; padding:4px 0; max-height:360px; overflow-y:auto;}
   .chat-bubble{
     align-self:flex-start;
     max-width:85%;
@@ -785,7 +771,6 @@
     .mode-btn .label-extra{display:none;}
     .project-bar{flex-direction:column; align-items:stretch;}
     .project-bar select, .project-bar input[type=text]{width:100%; min-width:0;}
-    .project-bar .pill-current{align-self:flex-start;}
     .scanner-row{flex-direction:column;}
     .chat-tabs-row .mode-btn{flex:1 1 46%; font-size:12px; padding:10px 6px;}
     #scanInput{font-size:17px; min-width:0; width:100%;}
@@ -1116,7 +1101,7 @@
   // en texto, nada de tooltips señalando cada botón que sería mucho más frágil de mantener
   const TOUR_PASOS = [
     {titulo:'Bienvenido a Tecnomat', texto:'Esta app controla el stock, las órdenes de montaje, los proyectos y los pedidos de material. Un repaso rápido en unos pasos — puedes saltarlo si ya lo conoces.'},
-    {titulo:'Las cuatro secciones', texto:'Arriba tienes Montaje/Venta, Almacén, Proyecto y Pedido — cada una con su propio color, para saber de un vistazo en cuál estás.'},
+    {titulo:'Las tres secciones', texto:'Arriba tienes Trabajo (montaje y proyectos, todo junto), Almacén y Pedido — cada una con su propio color, para saber de un vistazo en cuál estás.'},
     {titulo:'Escanear', texto:'El campo de escaneo funciona con lector USB/Bluetooth, con la cámara del móvil, o escribiendo el código a mano. Justo después de leerlo, se pregunta la cantidad.'},
     {titulo:'Buscar en cualquier momento', texto:'El buscador de arriba de todo funciona en cualquier sección — busca por código, artículo o referencia, sin tener que cambiar de sitio.'},
     {titulo:'Ya está', texto:'Eso es lo esencial para empezar. Puedes volver a ver este repaso cuando quieras con el botón "Ayuda", junto al de cambiar de tema.'}
@@ -1515,6 +1500,13 @@
 
   // hilo de chat compartido — usado tanto en Trabajo (por orden/proyecto) como en Pedido.
   // "opciones.target" + "opciones.puedeAsociar" activan el botón "Asociar" en Trabajo (solo Almacén)
+  // baja el hilo del chat hasta el último mensaje — se llama justo después de pintarlo,
+  // para no tener que desplazarse a mano cada vez que se abre o llega algo nuevo
+  function scrollChatAlFinal(el){
+    const feed = el.querySelector('.chat-feed');
+    if(feed) feed.scrollTop = feed.scrollHeight;
+  }
+
   function renderChatMessages(chatArray, opciones){
     opciones = opciones || {};
     if(!chatArray.length) return '<div class="empty-state">Todavía no hay nada — escanea o escribe algo para empezar.</div>';
@@ -1690,16 +1682,6 @@
     render();
   }
 
-  function changeCoste(id){
-    const item = state.catalog.find(m => m.id === id);
-    if(!item) return;
-    const val = prompt('Coste por unidad de '+item.code+' — '+item.desc+' (€):', item.coste || 0);
-    if(val === null) return;
-    const num = parseFloat(String(val).replace(',','.'));
-    item.coste = isNaN(num) ? 0 : Math.max(0, num);
-    saveCatalog();
-    render();
-  }
 
   // formulario único que junta lo que antes eran 4 botones y 4 prompt() distintos
   // (artículo, referencia, ubicación, categoría, coste, características) — se cambia
@@ -3225,6 +3207,7 @@
   }
 
   let mostrarFormNuevoTrabajo = false; // el formulario de "crear nuevo" empieza escondido, para no saturar la barra
+  let mostrarMasOpcionesTrabajo = false; // Finalizar/Eliminar empiezan escondidos, para ocupar menos en móvil
 
   // genera el HTML del selector/creador — ya no pinta en su propio hueco aparte,
   // se inserta dentro del propio bloque del chat, para que todo vaya junto
@@ -3237,28 +3220,28 @@
       .sort((a,b)=>a.name.localeCompare(b.name));
     return `
       <div class="project-bar">
-        <select id="groupSelect">
+        <select id="groupSelect" style="flex:1;">
           <option value="">— Selecciona una orden o proyecto —</option>
           ${combinada.map(g=>`<option value="${g.kind}::${esc(g.name)}" ${g.kind===kind && g.name===currentName?'selected':''}>${g.kind==='montaje'?'Montaje':'Proyecto'}: ${esc(g.name)}${g.tipo?' ['+esc(g.tipo)+']':''}${g.status==='finalizado'?' (Finalizado)':''}</option>`).join('')}
         </select>
+        <button class="cam-btn" id="toggleNuevoTrabajoBtn" style="flex:none; padding:9px 14px; min-height:auto;">${mostrarFormNuevoTrabajo?'Cancelar':'+ Nueva'}</button>
       </div>
       ${current ? `
-      <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; color:var(--text-faint); margin:-2px 0 8px 2px;">
-        <span style="color:${current.status==='finalizado'?'var(--text-muted)':'var(--success)'};">${current.status==='finalizado'?'Finalizado':'Activo'}</span>
-        <span>·</span>
-        <span>${kind==='montaje'?'Montaje':'Proyecto'}</span>
-        ${current.tipo ? `<span>·</span><span>${esc(current.tipo)}</span>` : ''}
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; flex-wrap:wrap; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; color:var(--text-faint); margin:-2px 0 8px 2px;">
+        <span>
+          <span style="color:${current.status==='finalizado'?'var(--text-muted)':'var(--success)'};">${current.status==='finalizado'?'Finalizado':'Activo'}</span>
+          · ${kind==='montaje'?'Montaje':'Proyecto'}
+          ${current.tipo ? ' · '+esc(current.tipo) : ''}
+        </span>
+        ${getUserRole() === 'taller' ? '' : `<button class="cam-btn" id="toggleMasOpcionesBtn" style="flex:none; padding:4px 10px; font-size:10px; min-height:auto; text-transform:none; letter-spacing:0;">${mostrarMasOpcionesTrabajo?'Ocultar':'Más opciones'}</button>`}
       </div>
-      ${getUserRole() === 'taller' ? '' : `
+      ${(mostrarMasOpcionesTrabajo && getUserRole() !== 'taller') ? `
       <div class="project-bar project-bar-inline" style="margin-top:0;">
         <button class="cam-btn" id="toggleStatusBtn" style="flex:1;">${current.status==='finalizado'?'Reactivar':'Finalizar'}</button>
         <button class="btn-return" id="deleteGroupBtn" style="flex:1;">Eliminar</button>
       </div>
-      `}
       ` : ''}
-      <div class="project-bar" style="margin-top:8px;">
-        <button class="cam-btn" id="toggleNuevoTrabajoBtn" style="flex:1;">${mostrarFormNuevoTrabajo?'Cancelar':'+ Nueva orden/proyecto'}</button>
-      </div>
+      ` : ''}
       ${mostrarFormNuevoTrabajo ? `
       <div class="project-bar" style="margin-top:8px;">
         <input type="text" id="newGroupInput" placeholder="Nombre de la orden o proyecto…" value="${esc(newGroupDraft.nombre)}">
@@ -3292,6 +3275,11 @@
     });
     el.querySelector('#toggleNuevoTrabajoBtn').addEventListener('click', ()=>{
       mostrarFormNuevoTrabajo = !mostrarFormNuevoTrabajo;
+      render();
+    });
+    const masOpcionesBtn = el.querySelector('#toggleMasOpcionesBtn');
+    if(masOpcionesBtn) masOpcionesBtn.addEventListener('click', ()=>{
+      mostrarMasOpcionesTrabajo = !mostrarMasOpcionesTrabajo;
       render();
     });
     const newGroupInput = el.querySelector('#newGroupInput');
@@ -3891,6 +3879,7 @@
     `;
 
     el.innerHTML = tabs + bodyHtml;
+    scrollChatAlFinal(el);
 
     el.querySelectorAll('[data-pedido-view]').forEach(btn=>{
       btn.addEventListener('click', ()=>{ pedidoView = btn.dataset.pedidoView; renderPedidoMain(); });
@@ -4096,6 +4085,7 @@
 
     el.innerHTML = selectorHtml + tabs + bodyHtml + pendienteHtml;
     wireTrabajoSelector(el);
+    scrollChatAlFinal(el);
 
     el.querySelectorAll('[data-pendiente-del]').forEach(btn=>{
       btn.addEventListener('click', ()=>{
@@ -4204,9 +4194,9 @@
         <div class="panel">
           <p class="panel-title">Copia de seguridad</p>
           <div class="backup-row">
-            <button class="btn" id="exportBackupBtn">⬇ Descargar todo</button>
+            <button class="btn" id="exportBackupBtn">Descargar todo</button>
             <label class="btn" style="text-align:center; display:block;">
-              ⬆ Restaurar
+              Restaurar
               <input type="file" id="backupFile" accept=".json" style="display:none;">
             </label>
           </div>

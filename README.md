@@ -322,3 +322,23 @@ Las tres etiquetas de estado (Activo, Montaje, Interno) que antes salían como t
 El pitido de aviso creaba un `AudioContext` nuevo cada vez. Si en ese dispositivo no había habido ningún clic o toque justo antes (que es exactamente lo que pasa cuando el aviso llega solo, por los datos, desde otro dispositivo), el navegador dejaba ese `AudioContext` "suspendido" en silencio — sin ningún error, así que no había forma de notar por qué no sonaba. Ahora se usa un único `AudioContext` compartido, y el "desbloqueo" ya no es de una sola vez por sesión: se reintenta en cada toque, porque los navegadores (sobre todo en móvil) pueden volver a suspenderlo solos si la pestaña pasa un rato en segundo plano.
 
 Aviso honesto: esto depende de restricciones del propio navegador para reproducir sonido sin que hayas tocado nada, y algunos (especialmente Safari en iPhone) son más estrictos que otros — puede que en algún dispositivo concreto siga sin sonar el pitido en circunstancias muy puntuales. Como red de seguridad aparte del sonido, si le has dado permiso a la app para notificaciones del sistema (el aviso típico del propio teléfono/ordenador, no de la app), ese sí llega sin depender de esta restricción de audio.
+
+## 31. Limpieza de código
+
+Repaso sistemático de todo el archivo, buscando código que ya no cumple ninguna función:
+
+- **Una función huérfana eliminada** (`changeCoste`), que dejó de usarse desde que se unificó en el botón "Editar".
+- **Una clase CSS huérfana eliminada** (`.pill-current`, con su variante de móvil), de cuando las etiquetas de Trabajo eran cajas separadas en vez de una línea de texto.
+- **Un texto del tour inicial corregido**: seguía diciendo "las cuatro secciones: Montaje/Venta, Almacén, Proyecto y Pedido", cuando ahora son solo tres (Trabajo, Almacén, Pedido).
+- Comprobado que no quedan variables declaradas sin usar, ni reglas CSS duplicadas.
+
+No se ha tocado ninguna función que sí esté en uso, para no arriesgar nada que ya funcione.
+
+## 33. Selector más compacto, y chat con alto fijo
+
+- **Selector de orden/proyecto**: el desplegable y "+ Nueva" van ahora en una sola fila, en vez de dos. "Finalizar" y "Eliminar" se esconden detrás de un pequeño botón "Más opciones" — antes se veían siempre, aunque no se usan cada vez que abres una orden.
+- **El chat ya no crece sin límite**: tiene un alto fijo con su propio scroll interno, así que aunque se acumulen muchos mensajes, el resto de la pantalla no se ve empujado hacia abajo. Al entrar (o al llegar un mensaje nuevo), se desplaza solo hasta el último, sin tener que bajar a mano.
+
+## 32. Segunda pasada de limpieza
+
+Repaso más a fondo: referencias a elementos que no existen, atributos `data-*` sin usar, CSS duplicado dentro de las secciones de móvil, y anotaciones de tareas pendientes olvidadas. Todo salió limpio, salvo un detalle real que sí encontré: **dos emojis** (⬇ y ⬆, en los botones de "Descargar todo" y "Restaurar" de la copia de seguridad) se habían colado después de la limpieza de emojis de hace unas cuantas respuestas — ya quitados.
