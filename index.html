@@ -1497,8 +1497,9 @@
   // pregunta quién hace el pedido con una ventana, solo si todavía no se sabe —
   // en vez de un campo fijo siempre visible en pantalla
   function pedirNombrePedido(){
-    if(state.pedidoRequesterName) return true;
-    const nombre = prompt('¿Quién hace el pedido? (obligatorio)');
+    // se pregunta siempre, no solo la primera vez — cada envío/escaneo puede ser
+    // de una persona distinta, sobre todo si el dispositivo se comparte
+    const nombre = prompt('¿Quién hace este pedido? (obligatorio)');
     if(!nombre || !nombre.trim()) return false;
     state.pedidoRequesterName = nombre.trim();
     savePedidoRequester();
@@ -1843,7 +1844,7 @@
     }else{
       state.pedidoItems.push({id:uid(), itemId:item.id, code:item.code, desc:item.desc, qty});
     }
-    agregarMensajeChat(state.pedidoChat, 'Escaneado: '+item.code+' — '+item.desc+' · '+qty+' uds');
+    agregarMensajeChat(state.pedidoChat, 'Escaneado: '+item.code+' — '+item.desc+' · '+qty+' uds (pide: '+state.pedidoRequesterName+')');
     savePedidoChat();
     savePedido();
     render();
@@ -1857,7 +1858,7 @@
     if(!texto){ showStatus('Escribe qué hace falta antes de enviar.'); return; }
     const qty = Math.max(1, parseInt(inputQty.value,10) || 1);
     state.pedidoItems.push({id:uid(), itemId:null, code:'', desc:texto, qty});
-    agregarMensajeChat(state.pedidoChat, 'Pedido: '+texto+' · '+qty+' uds');
+    agregarMensajeChat(state.pedidoChat, 'Pedido: '+texto+' · '+qty+' uds (pide: '+state.pedidoRequesterName+')');
     savePedidoChat();
     savePedido();
     render();

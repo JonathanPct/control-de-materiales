@@ -343,7 +343,7 @@ No se ha tocado ninguna función que sí esté en uso, para no arriesgar nada qu
 
 En Trabajo, el formulario de crear orden/proyecto ya no tiene el campo "¿Quién pide el material?" — al pulsar "+ Crear", sale una ventana que lo pregunta y obliga a rellenarlo antes de crear de verdad (si se cancela o se deja en blanco, no se crea nada).
 
-En Pedido, se ha quitado el campo fijo que estaba siempre en pantalla — ahora la misma ventana salta la primera vez que intentas escanear o escribir en el chat sin haber dicho antes quién hace el pedido. Una vez respondida, no se vuelve a preguntar en esa sesión.
+En Pedido, se ha quitado el campo fijo que estaba siempre en pantalla — la ventana salta **cada vez** que escaneas o envías un mensaje por el chat, no solo la primera vez (pensado para un dispositivo compartido entre varias personas). Cada mensaje del chat de Pedido muestra quién pidió esa línea en concreto.
 
 ## 35. Hoja de pedido en móvil, y escanear al asociar una referencia
 
