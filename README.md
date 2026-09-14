@@ -339,6 +339,17 @@ No se ha tocado ninguna función que sí esté en uso, para no arriesgar nada qu
 - **Selector de orden/proyecto**: el desplegable y "+ Nueva" van ahora en una sola fila, en vez de dos. "Finalizar" y "Eliminar" se esconden detrás de un pequeño botón "Más opciones" — antes se veían siempre, aunque no se usan cada vez que abres una orden.
 - **El chat ya no crece sin límite**: tiene un alto fijo con su propio scroll interno, así que aunque se acumulen muchos mensajes, el resto de la pantalla no se ve empujado hacia abajo. Al entrar (o al llegar un mensaje nuevo), se desplaza solo hasta el último, sin tener que bajar a mano.
 
+## 34. "¿Quién pide?" ahora con una ventana, no un campo fijo
+
+En Trabajo, el formulario de crear orden/proyecto ya no tiene el campo "¿Quién pide el material?" — al pulsar "+ Crear", sale una ventana que lo pregunta y obliga a rellenarlo antes de crear de verdad (si se cancela o se deja en blanco, no se crea nada).
+
+En Pedido, se ha quitado el campo fijo que estaba siempre en pantalla — ahora la misma ventana salta la primera vez que intentas escanear o escribir en el chat sin haber dicho antes quién hace el pedido. Una vez respondida, no se vuelve a preguntar en esa sesión.
+
+## 35. Hoja de pedido en móvil, y escanear al asociar una referencia
+
+- **Hoja de pedido en móvil**: la tabla no tenía un ancho mínimo, así que en pantallas estrechas se aplastaba en vez de activar el scroll lateral que ya tenía preparado — ahora mantiene un ancho legible y se puede desplazar hacia los lados para ver todas las columnas.
+- **Escanear al asociar una referencia**: al pulsar "Asociar" en el chat (o "Asignar referencia" en la Hoja de pedido), ahora se puede elegir entre escanear el código con la cámara del móvil o escribirlo a mano, en vez de solo poder teclearlo.
+
 ## 32. Segunda pasada de limpieza
 
 Repaso más a fondo: referencias a elementos que no existen, atributos `data-*` sin usar, CSS duplicado dentro de las secciones de móvil, y anotaciones de tareas pendientes olvidadas. Todo salió limpio, salvo un detalle real que sí encontré: **dos emojis** (⬇ y ⬆, en los botones de "Descargar todo" y "Restaurar" de la copia de seguridad) se habían colado después de la limpieza de emojis de hace unas cuantas respuestas — ya quitados.

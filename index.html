@@ -382,6 +382,7 @@
 
   .hoja-pedido-table{
     width:100%;
+    min-width:680px;
     border-collapse:collapse;
     font-size:12.5px;
     font-family:ui-monospace,"SF Mono",Consolas,monospace;
@@ -1193,6 +1194,7 @@
     groupData: {},            // clave "montaje::Nombre" / "proyecto::Nombre" -> emptyGroupData()
     bobinas: [],              // [{id, desc, matricula, expira:'YYYY-MM-DD', createdAt}]
     pedidoItems: [],          // [{id, code, desc, qty}] - el listado que voy montando para pedir material
+    pedidoRequesterName: '', // quién pide el material — obligatorio antes de escanear o escribir, igual que en Trabajo
     pedidoChat: [],           // [{id, texto, ts, tsMs}] - el mismo chat que en Trabajo, pero para Pedido
     pendingDelivery: null,    // {items:[...], recipientName} - el pedido ya congelado, esperando la firma
     deliveries: [],            // [{id, items, recipientName, signature, ts, tsMs}] - entregas ya firmadas
@@ -1342,10 +1344,10 @@
   }
 
   async function loadAll(){
-    const [catalog, movements, groupsMontaje, groupsProyecto, oldLists, oldProjects, appState, bobinas, settings, alerts, pedidoItems, movementsArchive, deliveries, notifications, ubicaciones, deliveriesArchive, pedidoChat] = await Promise.all([
+    const [catalog, movements, groupsMontaje, groupsProyecto, oldLists, oldProjects, appState, bobinas, settings, alerts, pedidoItems, movementsArchive, deliveries, notifications, ubicaciones, deliveriesArchive, pedidoChat, pedidoRequesterName] = await Promise.all([
       safeGet('catalog'), safeGet('movements'), safeGet('groups_montaje'), safeGet('groups_proyecto'),
       safeGet('lists'), safeGet('projects'), safeGet('app_state'),
-      safeGet('bobinas'), safeGet('settings'), safeGet('alerts_state'), safeGet('pedido_items'), safeGet('movements_archive'), safeGet('deliveries'), safeGet('notifications'), safeGet('ubicaciones'), safeGet('deliveries_archive'), safeGet('pedido_chat')
+      safeGet('bobinas'), safeGet('settings'), safeGet('alerts_state'), safeGet('pedido_items'), safeGet('movements_archive'), safeGet('deliveries'), safeGet('notifications'), safeGet('ubicaciones'), safeGet('deliveries_archive'), safeGet('pedido_chat'), safeGet('pedido_requester')
     ]);
     if(catalog) state.catalog = catalog.map(m => ({id:m.id||uid(), code:m.code, desc:m.desc, qty: typeof m.qty==='number'?m.qty:0, location:m.location||'', specs:m.specs||'', marca:m.marca||'', referencia:m.referencia||'', categoria:m.categoria||'', coste:typeof m.coste==='number'?m.coste:0}));
     if(movements) state.movements = movements;
@@ -1353,6 +1355,7 @@
     if(bobinas) state.bobinas = bobinas;
     if(pedidoItems) state.pedidoItems = pedidoItems;
     if(pedidoChat) state.pedidoChat = pedidoChat;
+    if(pedidoRequesterName) state.pedidoRequesterName = pedidoRequesterName;
     if(deliveries) state.deliveries = deliveries;
     if(notifications) state.notifications = notifications;
     if(ubicaciones) state.ubicaciones = ubicaciones;
@@ -1489,6 +1492,18 @@
   function saveGroupData(kind, name){ safeSet('group_'+kind+'_'+slug(name), state.groupData[kind+'::'+name]); }
   function saveBobinas(){ safeSet('bobinas', state.bobinas); }
   function savePedido(){ safeSet('pedido_items', state.pedidoItems); }
+  function savePedidoRequester(){ safeSet('pedido_requester', state.pedidoRequesterName); }
+
+  // pregunta quién hace el pedido con una ventana, solo si todavía no se sabe —
+  // en vez de un campo fijo siempre visible en pantalla
+  function pedirNombrePedido(){
+    if(state.pedidoRequesterName) return true;
+    const nombre = prompt('¿Quién hace el pedido? (obligatorio)');
+    if(!nombre || !nombre.trim()) return false;
+    state.pedidoRequesterName = nombre.trim();
+    savePedidoRequester();
+    return true;
+  }
   function savePedidoChat(){ safeSet('pedido_chat', state.pedidoChat.slice(-200)); } // con las 200 últimas de sobra
 
   // añade un mensaje al chat (de una orden/proyecto, o al de Pedido) y lo guarda —
@@ -1835,6 +1850,7 @@
   }
 
   function enviarPeticionChatPedido(){
+    if(!pedirNombrePedido()) return;
     const inputTexto = $('#chatMensajeInput');
     const inputQty = $('#chatCantidadInput');
     const texto = inputTexto.value.trim();
@@ -2214,25 +2230,34 @@
     if(!target) return;
     const it = target.pendiente.items.find(x => x.id === pendienteId);
     if(!it) return;
-    const codigo = prompt('Código de la referencia real para "'+it.textoLibre+'":');
-    if(!codigo || !codigo.trim()) return;
-    let item = findInCatalog(codigo.trim());
-    if(!item){
-      if(!confirm('El código "'+codigo.trim()+'" no existe todavía en el stock. ¿Darlo de alta ahora (con 0 unidades, se ajusta luego)?')) return;
-      const desc = prompt('Artículo para "'+codigo.trim()+'":', it.textoLibre) || it.textoLibre;
-      item = {id:uid(), code:codigo.trim(), desc:desc.trim(), qty:0, location:'', specs:'', marca:'', referencia:'', categoria:'', coste:0};
-      state.catalog.push(item);
-      saveCatalog();
+
+    const continuarConCodigo = (codigo) => {
+      if(!codigo || !codigo.trim()) return;
+      let item = findInCatalog(codigo.trim());
+      if(!item){
+        if(!confirm('El código "'+codigo.trim()+'" no existe todavía en el stock. ¿Darlo de alta ahora (con 0 unidades, se ajusta luego)?')) return;
+        const desc = prompt('Artículo para "'+codigo.trim()+'":', it.textoLibre) || it.textoLibre;
+        item = {id:uid(), code:codigo.trim(), desc:desc.trim(), qty:0, location:'', specs:'', marca:'', referencia:'', categoria:'', coste:0};
+        state.catalog.push(item);
+        saveCatalog();
+      }
+      it.itemId = item.id;
+      it.code = item.code;
+      it.desc = item.desc;
+      it.referencia = item.referencia || '';
+      delete it.textoLibre;
+      agregarMensajeChat(target.chat, 'Asociado a '+item.code+' — '+item.desc);
+      persistCurrentTarget();
+      render();
+      showStatus('Referencia asignada: '+item.code+' — '+item.desc);
+    };
+
+    // se puede escanear con la cámara del móvil en vez de escribir el código a mano
+    if(confirm('¿Escanear el código de barras con la cámara? Cancelar para escribirlo a mano.')){
+      openCamera(codigo => continuarConCodigo(codigo));
+    }else{
+      continuarConCodigo(prompt('Código de la referencia real para "'+it.textoLibre+'":'));
     }
-    it.itemId = item.id;
-    it.code = item.code;
-    it.desc = item.desc;
-    it.referencia = item.referencia || '';
-    delete it.textoLibre;
-    agregarMensajeChat(target.chat, 'Asociado a '+item.code+' — '+item.desc);
-    persistCurrentTarget();
-    render();
-    showStatus('Referencia asignada: '+item.code+' — '+item.desc);
   }
 
   function proceedWithItem(item){
@@ -2256,6 +2281,7 @@
       return;
     }
     if(state.mode === 'pedido'){
+      if(!pedirNombrePedido()) return;
       const qty = askQty(label);
       if(qty === null) return;
       addToPedido(item, qty);
@@ -3249,7 +3275,6 @@
           <option value="montaje" ${newGroupDraft.kind!=='proyecto'?'selected':''}>Montaje/Venta</option>
           <option value="proyecto" ${newGroupDraft.kind==='proyecto'?'selected':''}>Proyecto</option>
         </select>
-        <input type="text" id="newGroupRequester" placeholder="¿Quién pide el material?" value="${esc(newGroupDraft.requester)}">
         <select id="newGroupTipo">
           <option value="" ${!newGroupDraft.tipo?'selected':''}>¿Interno o externo?</option>
           <option value="Interno" ${newGroupDraft.tipo==='Interno'?'selected':''}>Interno</option>
@@ -3286,25 +3311,25 @@
     if(newGroupInput){
       newGroupInput.addEventListener('input', e => { newGroupDraft.nombre = e.target.value; });
       el.querySelector('#newGroupKind').addEventListener('change', e => { newGroupDraft.kind = e.target.value; });
-      el.querySelector('#newGroupRequester').addEventListener('input', e => { newGroupDraft.requester = e.target.value; });
       el.querySelector('#newGroupTipo').addEventListener('change', e => { newGroupDraft.tipo = e.target.value; });
       const tryCreate = () => {
         const nombre = el.querySelector('#newGroupInput').value;
         const pickedKind = el.querySelector('#newGroupKind').value;
-        const requester = el.querySelector('#newGroupRequester').value.trim();
         const tipo = el.querySelector('#newGroupTipo').value;
         if(!nombre.trim()){ showStatus('Escribe el nombre de la orden o proyecto.'); return; }
-        if(!requester){ showStatus('Indica quién pide el material — es obligatorio.'); return; }
         if(!tipo){ showStatus('Indica si el material es interno o externo — es obligatorio.'); return; }
+        // "¿quién pide?" ya no se escribe en el formulario — se pregunta con una
+        // ventana justo aquí, obligando a rellenarlo antes de crear de verdad
+        const requester = prompt('¿Quién pide el material para "'+nombre.trim()+'"? (obligatorio)');
+        if(!requester || !requester.trim()){ showStatus('Hace falta indicar quién pide el material para crear la orden/proyecto.'); return; }
         newGroupDraft = {nombre:'', requester:'', tipo:'', kind: pickedKind};
         mostrarFormNuevoTrabajo = false;
         ultimoKindTrabajo = pickedKind;
         state.mode = pickedKind;
-        createGroup(pickedKind, nombre, requester, tipo);
+        createGroup(pickedKind, nombre, requester.trim(), tipo);
       };
       el.querySelector('#createGroupBtn').addEventListener('click', tryCreate);
       newGroupInput.addEventListener('keydown', e => { if(e.key==='Enter'){ e.preventDefault(); tryCreate(); } });
-      el.querySelector('#newGroupRequester').addEventListener('keydown', e => { if(e.key==='Enter'){ e.preventDefault(); tryCreate(); } });
     }
     const toggleBtn = el.querySelector('#toggleStatusBtn');
     if(toggleBtn) toggleBtn.addEventListener('click', ()=> toggleGroupStatus(kind, currentName));
