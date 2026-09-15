@@ -905,8 +905,15 @@
 <script>
 (function(){
 
-  // ---------- Firebase (opcional, para compartir el stock entre dispositivos) ----------
-  // Sin rellenar, la app sigue funcionando con guardado local (localStorage).
+  // ============================================================
+  // ADAPTADOR DE BACKEND — todo lo que depende de Firebase vive
+  // aquí dentro, y solo aquí. Para migrar a otro hosting o base de
+  // datos, esto es lo ÚNICO que hace falta reescribir: el resto de
+  // la app llama siempre a "backend.get/set/delete/watch" y a
+  // "backend.auth.*", nunca a Firebase directamente. Ver el README,
+  // sección "Migrar a otro backend", para la lista completa de
+  // métodos que un backend nuevo tiene que implementar.
+  // ============================================================
   const firebaseConfig = {
     apiKey: "AIzaSyDIsRvCzSJeQ0ftK9DhMl8SAVPBlx9IKEc",
     authDomain: "almacenamiento-datos-40e38.firebaseapp.com",
@@ -915,17 +922,60 @@
     messagingSenderId: "901796174695",
     appId: "1:901796174695:web:767991d98b3383c186edc2"
   };
+  const FIRESTORE_COLLECTION = 'tecnomat_materiales';
 
-  let db = null;
-  let hasFirebase = false;
+  let backend = null; // queda null si Firebase no está configurado o no carga — la app sigue funcionando en local
   try{
     if(firebaseConfig.apiKey && firebaseConfig.apiKey !== 'TU_API_KEY' && typeof firebase !== 'undefined'){
       firebase.initializeApp(firebaseConfig);
-      db = firebase.firestore();
-      hasFirebase = true;
+      const db = firebase.firestore();
+      const fbAuth = firebase.auth();
+      backend = {
+        async get(key){
+          const doc = await db.collection(FIRESTORE_COLLECTION).doc(key).get();
+          return doc.exists ? doc.data().value : null;
+        },
+        async set(key, value){
+          await db.collection(FIRESTORE_COLLECTION).doc(key).set({
+            value, updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+          });
+          return {key, value};
+        },
+        async delete(key){
+          await db.collection(FIRESTORE_COLLECTION).doc(key).delete();
+        },
+        // se suscribe a los cambios de una clave en tiempo real; devuelve la función
+        // para darse de baja cuando ya no haga falta escuchar más
+        watch(key, applyFn){
+          return db.collection(FIRESTORE_COLLECTION).doc(key).onSnapshot(doc => {
+            if(!doc.exists) return;
+            applyFn(doc.data().value);
+          }, () => {});
+        },
+        // ajuste de stock con transacción — para que dos dispositivos no se pisen un
+        // cambio a la vez si suman/restan lo mismo casi al mismo tiempo. Si el backend
+        // nuevo no tiene transacciones, un "leer, sumar, escribir" normal ya vale
+        async adjustStockAtomic(item, delta){
+          const ref = db.collection(FIRESTORE_COLLECTION).doc('catalog');
+          await db.runTransaction(async tx => {
+            const doc = await tx.get(ref);
+            const serverCatalog = doc.exists ? doc.data().value : [];
+            const serverItem = serverCatalog.find(m => m.id === item.id);
+            if(serverItem) serverItem.qty += delta;
+            else serverCatalog.push(Object.assign({}, item));
+            tx.set(ref, {value: serverCatalog, updatedAt: firebase.firestore.FieldValue.serverTimestamp()});
+          });
+        },
+        auth: {
+          signIn(email, pass){ return fbAuth.signInWithEmailAndPassword(email, pass); },
+          signOut(){ return fbAuth.signOut(); },
+          onChange(cb){ fbAuth.onAuthStateChanged(cb); },
+          currentUserEmail(){ return (fbAuth.currentUser && fbAuth.currentUser.email) || ''; }
+        }
+      };
     }
-  }catch(e){ hasFirebase = false; }
-  const FIRESTORE_COLLECTION = 'tecnomat_materiales';
+  }catch(e){ backend = null; }
+  const hasFirebase = !!backend; // se mantiene este nombre — el resto de la app ya lo usa en muchos sitios
 
   // config de EmailJS (opcional) para avisos por correo sin servidor propio
   const emailjsConfig = {
@@ -958,12 +1008,6 @@
 
   // pdf.js para leer PDFs al crear una orden — se carga en diferido (defer), así que la
   // comprobación de si está listo se hace al usarlo de verdad, no aquí al arrancar
-
-  // ---------- Login (Firebase Authentication, opcional) ----------
-  let auth = null;
-  if(hasFirebase){
-    try{ auth = firebase.auth(); }catch(e){ auth = null; }
-  }
 
   // aviso sonoro + notificación del sistema para pedidos nuevos — solo funciona con la
   // app abierta (aunque sea en segundo plano si está instalada), no con la app cerrada
@@ -1041,15 +1085,16 @@
 
   // taller no ve Almacén — es solo de interfaz, la restricción real va en Firestore
   function getUserRole(){
-    if(!auth || !auth.currentUser) return 'almacen'; // sin login (o app sin Firebase) = acceso completo
-    const email = (auth.currentUser.email || '').toLowerCase();
+    if(!hasFirebase) return 'almacen'; // sin login (o app sin backend) = acceso completo
+    const email = backend.auth.currentUserEmail().toLowerCase();
+    if(!email) return 'almacen';
     if(email === 'taller@tecnomat.es') return 'taller';
     return 'almacen';
   }
 
-  // para saber quién hizo cada movimiento — si no hay login (app sin Firebase), queda vacío
+  // para saber quién hizo cada movimiento — si no hay login (app sin backend), queda vacío
   function currentUserEmail(){
-    return (auth && auth.currentUser && auth.currentUser.email) || '';
+    return hasFirebase ? backend.auth.currentUserEmail() : '';
   }
 
   function showLoginScreen(errorMsg){
@@ -1067,7 +1112,7 @@
         + '<span id="temaToggleArea"></span>'
         + '<span id="ayudaBtnArea"></span>';
       const btn = document.getElementById('logoutBtn');
-      if(btn) btn.addEventListener('click', ()=> auth.signOut());
+      if(btn) btn.addEventListener('click', ()=> backend.auth.signOut());
       renderTemaToggleBtn();
       renderAyudaBtn();
       comprobarTourInicial();
@@ -1151,18 +1196,18 @@
     if(!visto) mostrarTour();
   }
 
-  if(auth){
+  if(hasFirebase){
     const form = document.getElementById('loginForm');
     form.addEventListener('submit', function(e){
       e.preventDefault();
       const email = document.getElementById('loginEmail').value.trim();
       const pass = document.getElementById('loginPassword').value;
       showLoginScreen('Entrando…');
-      auth.signInWithEmailAndPassword(email, pass).catch(function(err){
+      backend.auth.signIn(email, pass).catch(function(err){
         showLoginScreen('No se pudo iniciar sesión: ' + err.message);
       });
     });
-    auth.onAuthStateChanged(function(user){
+    backend.auth.onChange(function(user){
       if(user){
         showAppScreen(user);
         loadAll();
@@ -1253,7 +1298,7 @@
     const b = $('#statusBanner');
     // si el mensaje empieza sonando a error o a "te falta rellenar esto", se marca en
     // rojo de aviso; el resto (la mayoría, confirmaciones de que algo ha ido bien) usa
-    // un tono neutro — antes todo salía en rojo de alarma, incluso lo que iba bien
+    // un tono neutro, para no dar la sensación de alarma cuando todo ha ido bien
     const esError = /^(No se pu|No he |Ya no hay|Falta |Indica |Escribe |Rellena |Configura |Selecciona |El .*no puede|El pedido está vacío|La solicitud está vacía|La orden\/proyecto|Ese código no existe|Solo quedan|Formato no soportado|Tu navegador no soporta|Esa ubicación ya está|Error )/i.test(msg);
     b.className = 'status-banner' + (esError ? ' error' : '');
     b.innerHTML = esc(msg) + (undoFn ? ' <button id="undoBtn" class="btn-return" style="margin-left:8px; padding:3px 9px; font-size:11px;">Deshacer</button>' : '');
@@ -1304,8 +1349,7 @@
   async function safeGet(key){
     try{
       if(hasFirebase){
-        const doc = await db.collection(FIRESTORE_COLLECTION).doc(key).get();
-        return doc.exists ? doc.data().value : null;
+        return await backend.get(key);
       }
       if(hasCloudStorage){
         const r = await window.storage.get(key, false);
@@ -1318,10 +1362,7 @@
   async function safeSet(key, value){
     try{
       if(hasFirebase){
-        await db.collection(FIRESTORE_COLLECTION).doc(key).set({
-          value, updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-        });
-        return {key, value};
+        return await backend.set(key, value);
       }
       if(hasCloudStorage){
         const r = await window.storage.set(key, JSON.stringify(value), false);
@@ -1337,7 +1378,7 @@
   }
   async function safeDelete(key){
     try{
-      if(hasFirebase){ await db.collection(FIRESTORE_COLLECTION).doc(key).delete(); return; }
+      if(hasFirebase){ await backend.delete(key); return; }
       if(hasCloudStorage){ await window.storage.delete(key, false); return; }
       localStorage.removeItem(LS_PREFIX+key);
     }catch(e){}
@@ -1422,11 +1463,10 @@
   function watchKey(key, applyFn){
     if(!hasFirebase) return;
     if(unsubscribers[key]) unsubscribers[key](); // por si ya había uno de antes (p.ej. al cambiar de orden)
-    unsubscribers[key] = db.collection(FIRESTORE_COLLECTION).doc(key).onSnapshot(doc => {
-      if(!doc.exists) return;
-      applyFn(doc.data().value);
+    unsubscribers[key] = backend.watch(key, v => {
+      applyFn(v);
       renderTrasCambiosEnTiempoReal();
-    }, () => {}); // si falla la conexión no quiero que la app reviente, simplemente no actualiza
+    });
   }
   function setupRealtimeWatchers(){
     if(!hasFirebase) return;
@@ -1503,6 +1543,17 @@
     if(!nombre || !nombre.trim()) return false;
     state.pedidoRequesterName = nombre.trim();
     savePedidoRequester();
+    return true;
+  }
+
+  // en Trabajo, cada orden guarda su propio "quién lo pide" — se pregunta con una
+  // ventana solo si esta tanda (target.pendiente) todavía no lo tiene, por ejemplo
+  // justo después de una entrega, que lo deja en blanco para la siguiente tanda
+  function pedirNombreSolicitante(target){
+    if(target.pendiente.requesterName) return true;
+    const nombre = prompt('¿Quién pide este material? (obligatorio)');
+    if(!nombre || !nombre.trim()) return false;
+    target.pendiente.requesterName = nombre.trim();
     return true;
   }
   function savePedidoChat(){ safeSet('pedido_chat', state.pedidoChat.slice(-200)); } // con las 200 últimas de sobra
@@ -1651,16 +1702,7 @@
     saveMovements();
 
     if(hasFirebase){
-      // transacción para que dos dispositivos no se pisen un cambio a la vez
-      const ref = db.collection(FIRESTORE_COLLECTION).doc('catalog');
-      db.runTransaction(async tx => {
-        const doc = await tx.get(ref);
-        const serverCatalog = doc.exists ? doc.data().value : [];
-        const serverItem = serverCatalog.find(m => m.id === item.id);
-        if(serverItem) serverItem.qty += delta;
-        else serverCatalog.push(Object.assign({}, item));
-        tx.set(ref, {value: serverCatalog, updatedAt: firebase.firestore.FieldValue.serverTimestamp()});
-      }).catch(e => showStatus('No se pudo sincronizar el stock: '+e.message));
+      backend.adjustStockAtomic(item, delta).catch(e => showStatus('No se pudo sincronizar el stock: '+e.message));
     }else{
       saveCatalog();
     }
@@ -1699,9 +1741,9 @@
   }
 
 
-  // formulario único que junta lo que antes eran 4 botones y 4 prompt() distintos
-  // (artículo, referencia, ubicación, categoría, coste, características) — se cambia
-  // lo que haga falta y se guarda todo de una vez, en vez de abrir un cuadro por dato
+  // formulario único que junta artículo, referencia, ubicación, categoría, coste y
+  // características — se cambia lo que haga falta y se guarda todo de una vez, en
+  // vez de abrir un cuadro de diálogo distinto por cada dato
   let editingItemId = null;
 
   function openEditItem(id){
@@ -2176,6 +2218,7 @@
   function enviarPeticionChat(){
     const target = currentTarget();
     if(!target) return;
+    if(!pedirNombreSolicitante(target)) return;
     const inputTexto = $('#chatMensajeInput');
     const inputQty = $('#chatCantidadInput');
     const texto = inputTexto.value.trim();
@@ -2207,10 +2250,7 @@
   function addTextoLibreAPendiente(){
     const target = currentTarget();
     if(!target) return;
-    if(!target.pendiente.requesterName){
-      showStatus('Indica quién hace la solicitud antes de añadir una línea.');
-      return;
-    }
+    if(!pedirNombreSolicitante(target)) return;
     const texto = prompt('Describe el material que hace falta (sin referencia):');
     if(!texto || !texto.trim()) return;
     const qtyStr = prompt('¿Cuántas unidades hacen falta?', '1');
@@ -2303,10 +2343,7 @@
     }
     const target = currentTarget();
     if(!target) return;
-    if(!target.pendiente.requesterName){
-      showStatus('Indica quién hace la solicitud (campo "¿Quién lo pide?" de arriba) antes de escanear.');
-      return;
-    }
+    if(!pedirNombreSolicitante(target)) return;
     const qty = askQty(label);
     if(qty === null) return;
     if(qty > item.qty){
@@ -3345,12 +3382,9 @@
     const currentGroup = currentName ? findGroup(groupKind, currentName) : null;
     const groupFinalizado = !!(currentGroup && currentGroup.status==='finalizado');
     const target = groupKind ? currentTarget() : null;
-    // sin "quién lo pide" no se puede escribir en el escáner, para que no parezca roto
-    const faltaSolicitante = !!(groupKind && target && !target.pendiente.requesterName);
-    const disabled = (groupKind && !currentName) || groupFinalizado || faltaSolicitante;
+    const disabled = (groupKind && !currentName) || groupFinalizado;
     const placeholder = (groupKind && !currentName) ? 'Selecciona '+(groupKind==='montaje'?'una orden de montaje/venta':'un proyecto')+' para escanear…'
       : groupFinalizado ? (groupKind==='montaje'?'Orden finalizada':'Proyecto finalizado')+' — reactívala para seguir registrando…'
-      : faltaSolicitante ? 'Rellena "¿Quién lo pide?" arriba antes de escanear…'
       : state.mode==='almacen' ? 'Escanea para registrar una entrada de stock…'
       : state.mode==='pedido' ? 'Escanea o introduce el código para añadirlo al pedido…'
       : 'Escanea o introduce el código para añadirlo a la solicitud…';
@@ -3363,10 +3397,6 @@
     const colorScanAlmacen = state.mode==='almacen' ? (modoAlmacenScan==='entrada' ? 'var(--success)' : 'var(--danger)') : '';
     zone.innerHTML = `
       <div class="scanner-panel" style="${state.mode==='almacen' ? `border-left:6px solid ${colorScanAlmacen}; background:linear-gradient(90deg, ${modoAlmacenScan==='entrada'?'var(--success-soft)':'var(--danger-soft)'}, transparent 220px);` : ''}">
-        ${groupKind && target ? `
-          <input type="text" id="requesterNameInput" placeholder="¿Quién lo pide? (obligatorio para poder escanear)" value="${esc(target.pendiente.requesterName)}" style="width:100%; margin-bottom:${faltaSolicitante?'4px':'8px'}; background:var(--bg-raised); border:1px solid ${target.pendiente.requesterName?'var(--border)':'var(--danger)'}; color:var(--text-primary); padding:11px 12px; border-radius:8px; font-size:14px;">
-          ${faltaSolicitante ? `<div style="color:var(--danger); font-size:12px; font-weight:600; margin-bottom:8px;">Escribe aquí quién hace la solicitud y pulsa fuera del campo — el escáner está bloqueado hasta entonces.</div>` : ''}
-        ` : ''}
         ${state.mode==='almacen' ? `
           <div style="font-family:'Big Shoulders Display','Arial Narrow',Arial,sans-serif; font-weight:800; font-size:20px; text-transform:uppercase; letter-spacing:.03em; color:${colorScanAlmacen}; margin-bottom:8px;">
             Modo activo: ${modoAlmacenScan==='entrada' ? 'ENTRADA (suma al stock)' : 'SALIDA (resta del stock)'}
@@ -3415,28 +3445,6 @@
         ` : ''}
       </div>
     `;
-    const requesterInput = $('#requesterNameInput');
-    if(requesterInput){
-      // al escribir algo, el escáner se desbloquea al momento
-      requesterInput.addEventListener('input', () => {
-        const tieneNombre = requesterInput.value.trim().length > 0;
-        target.pendiente.requesterName = requesterInput.value.trim(); // en memoria ya, para que el escaneo lo vea al instante
-        requesterInput.style.borderColor = tieneNombre ? 'var(--border)' : 'var(--danger)';
-        const scanEl = $('#scanInput'), camEl = $('#camBtn'), submitEl = $('#scanSubmitBtn');
-        if(tieneNombre && scanEl && scanEl.disabled && !groupFinalizado){
-          scanEl.disabled = false; camEl.disabled = false; submitEl.disabled = false;
-          scanEl.placeholder = 'Escanea o introduce el código para añadirlo a la solicitud…';
-          scanEl.focus({preventScroll: true});
-        }else if(!tieneNombre && scanEl){
-          scanEl.disabled = true; camEl.disabled = true; submitEl.disabled = true;
-          scanEl.placeholder = 'Rellena "¿Quién lo pide?" arriba antes de escanear…';
-        }
-      });
-      requesterInput.addEventListener('change', () => {
-        target.pendiente.requesterName = requesterInput.value.trim();
-        persistCurrentTarget();
-      });
-    }
     zone.querySelectorAll('[data-almacen-scan-modo]').forEach(btn=>{
       btn.addEventListener('click', ()=>{
         modoAlmacenScan = btn.dataset.almacenScanModo;
@@ -3978,13 +3986,11 @@
             <span class="ticket-title">Chat</span>
           </div>
           <div class="ticket-body">${renderChatMessages(target.chat, {target, puedeAsociar: !esTaller})}</div>
-          ${target.pendiente.requesterName ? `
           <div style="display:flex; gap:6px; padding:10px 14px; border-top:1px solid var(--border);">
             <input type="text" id="chatMensajeInput" placeholder="Describe lo que hace falta…" style="flex:2; min-width:0;">
             <input type="number" id="chatCantidadInput" placeholder="Uds" min="1" value="1" style="flex:none; width:64px;">
             <button class="btn primary" id="chatEnviarBtn" style="width:auto; flex:none;">Enviar</button>
           </div>
-          ` : `<div style="padding:10px 14px; color:var(--text-faint); font-size:12px;">Indica "¿Quién lo pide?" arriba para poder escribir en el chat.</div>`}
         </div>
       `;
     }else if(listView === 'hoja'){

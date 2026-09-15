@@ -1,88 +1,84 @@
 # Tecnomat · Control de Materiales
 
-App de gestión de stock, montaje y proyectos con escaneo de código de barras (lector USB/Bluetooth o cámara del móvil), pensada para funcionar como una única página web (`index.html`).
+App de gestión de stock, montaje/proyectos y pedidos con escaneo de código de barras (lector USB/Bluetooth o cámara del móvil), pensada para funcionar como una única página web (`index.html`).
 
-## Cómo se construyó esta aplicación
+## Cómo está construida
 
-El objetivo era tener una herramienta de almacén que no necesitara servidor propio, se pudiera alojar gratis (GitHub Pages) y funcionara bien tanto en ordenador como en el móvil de un operario. Eso llevó a la decisión de arquitectura principal: **una única página HTML autocontenida**, sin build, sin framework, sin `npm install` — todo el HTML, CSS y JavaScript viven en un solo archivo (`index.html`), lo que simplifica el despliegue a "subir un archivo y ya está publicado".
+El objetivo era tener una herramienta de almacén que no necesitara servidor propio, se pudiera alojar gratis (GitHub Pages) y funcionara bien tanto en ordenador como en el móvil de un operario. Eso llevó a la decisión de arquitectura principal: **una única página HTML autocontenida**, sin build, sin framework, sin `npm install` — todo el HTML, CSS y JavaScript viven en un solo archivo (`index.html`).
 
 **Stack técnico:**
-- **JavaScript vanilla**, sin framework — para el tamaño de esta app, un framework habría añadido una capa de build innecesaria.
-- **CSS con variables personalizadas** para poder recolorear secciones enteras (Montaje/Venta, Almacén, Proyecto, Pedido) cambiando solo unas pocas líneas.
+- **JavaScript vanilla**, sin framework.
+- **CSS con variables personalizadas** para recolorear secciones enteras (Trabajo, Almacén, Pedido) cambiando solo unas pocas líneas.
 - **SheetJS** para leer/escribir Excel y CSV directamente en el navegador.
-- **pdf.js** para extraer texto de PDFs al crear órdenes desde archivo (con un análisis heurístico línea a línea).
-- **Firebase (Firestore + Authentication)**, opcional, para guardado compartido en la nube con login.
+- **pdf.js** para extraer texto de PDFs al crear órdenes desde archivo (análisis heurístico línea a línea).
+- **JsBarcode** para generar e imprimir etiquetas de código de barras.
+- **Firebase (Firestore + Authentication)**, opcional, para guardado compartido en la nube con login — ver "Migrar a otro hosting o base de datos" si en algún momento se cambia de proveedor.
 - **EmailJS**, opcional, para mandar avisos por correo sin backend propio.
 - **`BarcodeDetector`** (API nativa del navegador) para escanear con la cámara del móvil.
 
-**Modelo de datos:** el estado vive en un único objeto JavaScript. El catálogo de materiales usa un `id` interno único por referencia — el código de barras (`code`) **no tiene que ser único**, así que un mismo código puede tener varias referencias asociadas, y la app pregunta cuál es al escanear si hay más de una coincidencia. El guardado sigue una cadena de prioridad: **Firestore** (si está configurado, con transacciones para evitar que dos dispositivos se pisen un cambio, y tiempo real) → **`localStorage`** del navegador como alternativa automática si no hay Firebase — así la app nunca deja de guardar datos, solo cambia dónde.
+**Modelo de datos:** el estado vive en un único objeto JavaScript. El catálogo de materiales usa un `id` interno único por referencia — el código de barras (`code`) **no tiene que ser único**, así que un mismo código puede tener varias referencias asociadas, y la app pregunta cuál es al escanear si hay más de una coincidencia.
+
+**Guardado, en cadena de prioridad:** Firestore (si está configurado, con transacciones para que dos dispositivos no se pisen un cambio, y tiempo real) → almacenamiento propio de la página → `localStorage` del navegador. La app nunca deja de guardar datos, solo cambia dónde.
 
 **Decisiones de diseño relevantes:**
-- Todos los datos dinámicos (códigos, referencias) se escapan antes de pintarlos en HTML, porque pueden venir de un escáner o de un humano y contener caracteres que rompan la página.
-- Al subir un archivo para crear una orden, la app muestra primero un resumen de lo que va a pasar línea a línea y pide confirmación, antes de tocar el stock — para evitar que un archivo mal leído (sobre todo un PDF complicado) descuadre algo sin que nadie se dé cuenta.
-- El histórico de movimientos, en vez de borrarse al superar un límite, se archiva resumido por mes.
+- Todos los datos dinámicos se escapan antes de pintarlos en HTML, porque pueden venir de un escáner o de un humano y contener caracteres que rompan la página.
+- Al subir un archivo para crear una orden, la app enseña primero un resumen línea a línea y pide confirmación antes de tocar el stock.
+- El histórico de movimientos y de firmas se archiva resumido en vez de borrarse sin más al superar un límite.
 - Las funciones opcionales (cámara, Firebase, EmailJS, PDF) se degradan sin romper el resto de la app si no están disponibles o configuradas.
 
-**Evolución:** empezó como escaneo + stock básico, y fue creciendo por capas — secciones (Almacén/Montaje/Proyecto/Pedido), bobinas con avisos, Firebase + EmailJS, códigos con varias referencias, órdenes desde archivo con vista previa, rediseño con identidad de marca, y por último mejoras de fiabilidad (transacciones, tiempo real, deshacer, actividad, resumen semanal, selección múltiple) y conversión en app instalable (PWA).
-
-**Limitaciones conocidas:** al ser una página estática, los avisos programados solo se comprueban cuando alguien tiene la app abierta (no hay tarea que se ejecute sola en segundo plano); la lectura de PDF es heurística, no una lectura de tablas real; y sin Firebase configurado, los datos no se comparten automáticamente entre dispositivos.
+**Limitaciones conocidas:**
+- Al ser una página estática, los avisos programados (stock bajo, bobinas por vencer) solo se comprueban cuando alguien tiene la app abierta — no hay tarea en segundo plano que se ejecute sola. El correo de pedido nuevo sí funciona siempre que se guarde una solicitud, esté quien esté conectado.
+- La lectura de PDF es heurística (busca patrones de texto), no una lectura de tablas real.
+- El pitido de aviso depende de que el navegador permita reproducir audio sin una interacción previa del usuario en esa pestaña — algunos navegadores (sobre todo Safari en iPhone) son más estrictos que otros. Si esto falla en algún dispositivo puntual, la notificación del sistema (si se le dio permiso) sigue llegando igual, ya que no depende de esta restricción.
+- Las firmas de entrega, al ser una imagen, solo se guardan completas las 40 más recientes por orden/proyecto (límite de tamaño por documento en Firestore); las más antiguas se archivan como resumen (quién, cuándo, cuántas líneas) sin la imagen.
+- El logo de la empresa no sale como imagen en los Excel exportados — la librería gratuita usada para generarlos no lo permite, solo el texto "TECNOMAT · Control de materiales".
 
 ## 1. Publicarla en GitHub Pages
 
-1. Entra en [github.com](https://github.com) y crea un repositorio nuevo (botón **New repository**). Puede llamarse, por ejemplo, `control-materiales`.
-2. Dentro del repositorio, pulsa **Add file → Upload files** y sube el archivo `index.html` de esta carpeta (a la raíz del repositorio, no dentro de ninguna subcarpeta).
+1. Entra en [github.com](https://github.com) y crea un repositorio nuevo (botón **New repository**).
+2. Dentro del repositorio, pulsa **Add file → Upload files** y sube todos los archivos de esta carpeta (`index.html`, `sw.js`, `manifest.json`, `icon-192.png`, `icon-512.png`) a la raíz del repositorio, no dentro de ninguna subcarpeta.
 3. Haz commit de los cambios (botón verde **Commit changes**).
-4. Ve a **Settings → Pages** (en el menú lateral del repositorio).
+4. Ve a **Settings → Pages** (menú lateral del repositorio).
 5. En **Build and deployment → Source**, selecciona **Deploy from a branch**.
 6. En **Branch**, elige `main` (o `master`) y la carpeta `/ (root)`. Guarda.
-7. Espera 1-2 minutos. GitHub te mostrará una URL parecida a:
-   `https://tu-usuario.github.io/control-materiales/`
-8. Entra en esa URL desde el móvil o el PC — ya puedes usar la app.
+7. Espera 1-2 minutos. GitHub muestra una URL parecida a `https://tu-usuario.github.io/tu-repositorio/`.
 
-No hace falta instalar nada más: es un único archivo HTML autocontenido.
+**Al subir cambios más adelante:** sube siempre `index.html` **y** `sw.js` juntos, y sube en 1 el número de la primera línea de verdad de `sw.js`:
+```js
+const CACHE_NAME = 'tecnomat-materiales-v4'; // súbelo a v5, v6... cada vez que subas cambios
+```
+Si subes `index.html` nuevo pero te olvidas de tocar `sw.js`, el navegador no se entera de que hay nada distinto y el aviso de "hay una versión nueva" no salta.
 
-## 2. ¿Cómo se guardan los datos ahí?
+## 2. Cómo se guardan los datos
 
-La app usa un guardado con dos niveles, según lo que tengas configurado:
+- **Con Firebase configurado**: guardado compartido en la nube, con tiempo real entre dispositivos.
+- **Sin Firebase configurado**: usa `localStorage`, la memoria propia del navegador — sigue guardándose todo solo, pero queda en ese navegador y dispositivo concretos, sin sincronizarse con otros.
 
-- **Con Firebase configurado** (ver sección 3): guardado compartido en la nube, con tiempo real entre dispositivos.
-- **Sin Firebase configurado**: usa `localStorage`, la memoria propia del navegador. Sigue guardándose todo solo, sin que tengas que hacer nada — pero **queda guardado en ese navegador y dispositivo concretos**, no en un servidor compartido.
+**Recomendación:** usa el botón **"Descargar todo"** (dentro de Almacén) de vez en cuando para bajarte una copia de seguridad real en un archivo `.json`, y **"Restaurar"** si necesitas pasar esos datos a otro dispositivo o recuperarlos tras borrar el navegador.
 
-Esto significa que si entras desde el móvil del almacén y luego desde el ordenador de la oficina, cada uno tendrá su propio stock guardado por separado — no se sincronizan automáticamente entre sí.
+## 3. Backend real (Firebase)
 
-**Recomendación:** usa el botón **"⬇ Descargar todo"** (dentro del modo Almacén) de vez en cuando para bajarte una copia de seguridad real en un archivo `.json`, y **"⬆ Restaurar"** si necesitas pasar esos datos a otro dispositivo o recuperarlos tras borrar el navegador.
+GitHub Pages solo sirve archivos estáticos — no puede ejecutar un servidor ni una base de datos. Por eso el `index.html` se conecta, si se quiere, a **Firebase Firestore** (base de datos gratuita de Google): la página sigue alojada 100% en GitHub Pages, pero los datos se guardan en esa base externa y todos los dispositivos comparten el mismo stock en tiempo real.
 
-## 3. ¿Se puede tener un backend real en GitHub?
-
-**No directamente.** GitHub Pages solo sirve archivos estáticos (HTML, CSS, JavaScript) — no puede ejecutar un servidor, ni una base de datos, ni código en segundo plano.
-
-Por eso el `index.html` puede conectarse, **si se quiere**, a **Firebase Firestore** (una base de datos gratuita de Google): la página sigue alojada 100% en GitHub Pages tal como está, pero en lugar de guardar los datos solo en el navegador, los guarda en esa base de datos externa — así todos los dispositivos (móviles y ordenadores) comparten el mismo stock en tiempo real.
-
-### ✅ Esto ya está hecho en este proyecto
-
-El `index.html` de esta carpeta ya tiene tu configuración real de Firebase metida (proyecto `almacenamiento-datos-40e38`), no hace falta repetir nada. Los pasos de abajo solo son referencia por si algún día necesitas:
-- crear otra instancia de la app en un proyecto de Firebase distinto,
-- o recordar de dónde salió esa configuración.
+El `index.html` de esta carpeta ya tiene la configuración real de Firebase metida (proyecto `almacenamiento-datos-40e38`). Los pasos de abajo solo son referencia por si algún día hace falta crear otra instancia en un proyecto de Firebase distinto.
 
 <details>
-<summary>Ver pasos de configuración (referencia, ya completados)</summary>
+<summary>Ver pasos de configuración desde cero</summary>
 
 1. Ve a [console.firebase.google.com](https://console.firebase.google.com) y entra con una cuenta de Google.
-2. **Añadir proyecto** → ponle un nombre → puedes desactivar Google Analytics, no hace falta → **Crear proyecto**.
-3. En el menú lateral, entra en **Compilación → Firestore Database** → **Crear base de datos**.
-   - Elige la ubicación más cercana (p. ej. `eur3 (europe-west)`).
-   - Selecciona **Modo de producción**.
-4. Ve a **Configuración del proyecto** (⚙) → pestaña **General** → baja hasta "Tus apps" → pulsa el icono **Web `</>`**.
+2. **Añadir proyecto** → ponle un nombre (Google Analytics no hace falta) → **Crear proyecto**.
+3. Menú lateral → **Compilación → Firestore Database** → **Crear base de datos**. Elige la ubicación más cercana y **Modo de producción**.
+4. **Configuración del proyecto** (⚙) → pestaña **General** → "Tus apps" → icono web `</>`.
 5. Ponle un apodo a la app → **Registrar app**. Firebase muestra un bloque `firebaseConfig`.
-6. Ese bloque se pega en `index.html`, cerca del principio del `<script>`, sustituyendo los valores de ejemplo.
+6. Ese bloque se pega en `index.html`, dentro del adaptador de backend cerca del principio del `<script>`, sustituyendo los valores de ejemplo.
 
 </details>
 
-### ⚠️ Nota de seguridad importante
+### Nota de seguridad
 
-Por defecto, en modo de prueba, cualquiera que conozca tu configuración de Firebase podría leer o escribir en tu base de datos (no solo quien tenga la URL de tu página). Para una herramienta interna esto suele ser un riesgo aceptable si la URL no se hace pública, pero si quieres cerrarlo bien:
+Por defecto, en modo de prueba, cualquiera que conozca la configuración de Firebase podría leer o escribir en la base de datos. Para cerrarlo:
 
-- En Firestore Database → pestaña **Reglas**, sustituye las reglas por algo como:
+- En Firestore Database → pestaña **Reglas**:
   ```
   rules_version = '2';
   service cloud.firestore {
@@ -93,263 +89,148 @@ Por defecto, en modo de prueba, cualquiera que conozca tu configuración de Fire
     }
   }
   ```
-- Si necesitas que solo la gente de tu empresa pueda entrar (con usuario y contraseña), la app ya incluye pantalla de login con **Firebase Authentication** — solo hace falta crear los usuarios (Authentication → Users) y ajustar las reglas para exigir `request.auth != null`.
+- Para exigir usuario y contraseña, la app ya incluye pantalla de login con Firebase Authentication — solo hace falta crear los usuarios (Authentication → Users) y ajustar las reglas para pedir `request.auth != null`.
 
-Si no rellenas el `firebaseConfig` (lo dejas con los valores de ejemplo), la app simplemente sigue funcionando con guardado local en el navegador, como hasta ahora — no rompe nada.
+**Restringir la clave de API por dominio** (recomendado, en Google Cloud Console, no en el código):
+1. [console.cloud.google.com](https://console.cloud.google.com), con el proyecto correcto seleccionado arriba.
+2. Menú ☰ → **APIs y servicios → Credenciales** → clic en la clave (empieza por `AIzaSy...`).
+3. **Restricciones de aplicaciones** → **Sitios web** → añade `tu-usuario.github.io/*`. Guarda.
 
-## 4. Bobinas y avisos (stock bajo / fechas de devolución)
+Con esto, aunque alguien copie la `apiKey` del código fuente, no puede usarla desde ningún otro sitio.
 
-Dentro de Almacén hay ahora una sección para registrar bobinas (descripción, matrícula y fecha en la que hay que devolverlas). Cada vez que entras en cualquier apartado de la app, sale un aviso arriba si:
-- alguna bobina está a punto de llegar a su fecha de devolución (el margen de días lo configuras tú en el panel "Avisos", dentro de Almacén), o
-- algún material tiene menos unidades de las que consideras "stock bajo" (también configurable, por defecto 2).
+**Restricción real para Taller** (la de la interfaz, ver sección 5, es solo visual): en Firestore Database → Reglas:
+```
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /tecnomat_materiales/catalog {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.token.email != 'taller@tecnomat.es';
+    }
+    match /tecnomat_materiales/movements {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.token.email != 'taller@tecnomat.es';
+    }
+    match /tecnomat_materiales/{docId} {
+      allow read, write: if request.auth != null && docId != 'catalog' && docId != 'movements';
+    }
+  }
+}
+```
+Taller sigue pudiendo leer el stock (lo necesita para comprobar cantidades), pero Firestore rechaza cualquier escritura sobre `catalog` o `movements` desde esa cuenta, funcione o no la interfaz.
 
-Además, una vez al día (a partir de la hora que configures) la app intenta mandarte un correo con el resumen: si hay materiales con stock bajo, los lista junto con las bobinas que estén por vencer (todo en un solo correo); si no hay stock bajo pero sí bobinas por vencer, manda un correo solo con eso.
+Si no se rellena `firebaseConfig` (se deja con los valores de ejemplo), la app sigue funcionando con guardado local, sin romper nada.
 
-**⚠️ Limitación importante:** como esta página es estática (sin servidor), ese aviso diario solo se comprueba cuando alguien tiene la página abierta (lo revisa al entrar y cada 5 minutos mientras esté abierta). Si nadie abre la página ese día, no se manda nada — no hay manera de "despertar" una página estática sola. Si en algún momento se necesita que el aviso sea 100% fiable aunque nadie tenga la página abierta, haría falta montar un disparador aparte en la nube (por ejemplo, una función programada de Firebase).
+## 4. Avisos y notificaciones
 
-### Cómo activar el envío de correos (EmailJS, gratis)
+**Correo (EmailJS, gratis):**
+1. Cuenta gratuita en [emailjs.com](https://www.emailjs.com).
+2. **Email Services → Add New Service**, conectar una cuenta de correo. Apuntar el **Service ID**.
+3. **Email Templates → Create New Template**, con las variables `{{subject}}`, `{{message}}`, `{{to_email}}` en el cuerpo. Apuntar el **Template ID**.
+4. **Account → General** → copiar la **Public Key**.
+5. En `index.html`, bloque `emailjsConfig` (cerca de `firebaseConfig`), sustituir las tres claves.
+6. Dentro de la app, Almacén → panel "Avisos", poner el email de destino y guardar.
 
-1. Ve a [emailjs.com](https://www.emailjs.com) y crea una cuenta gratuita.
-2. En el panel, ve a **Email Services → Add New Service** y conecta tu cuenta de correo (Gmail, Outlook...). Apunta el **Service ID** que te genera.
-3. Ve a **Email Templates → Create New Template**. En el cuerpo de la plantilla usa las variables `{{subject}}`, `{{message}}` y `{{to_email}}` (por ejemplo, asunto: `{{subject}}`, cuerpo: `{{message}}`, destinatario: `{{to_email}}`). Apunta el **Template ID**.
-4. Ve a **Account → General** y copia tu **Public Key**.
-5. Abre `index.html`, busca el bloque `emailjsConfig` (cerca del `firebaseConfig`) y sustituye `TU_PUBLIC_KEY`, `TU_SERVICE_ID` y `TU_TEMPLATE_ID` por los tuyos. Sube el archivo a GitHub.
-6. Dentro de la app, en Almacén → panel "Avisos", pon el email al que quieres que lleguen los avisos y guarda.
+Sin `emailjsConfig` configurado, los avisos siguen apareciendo como banner dentro de la app, solo que sin correo.
 
-Si no rellenas `emailjsConfig`, los avisos siguen apareciendo igualmente como banner dentro de la app — simplemente no se manda el correo.
+**Qué avisa la app, y por qué canal:**
+- **Stock bajo / bobinas por vencer**: banner al entrar en cualquier sección, y un correo diario (a partir de la hora configurada en Avisos) con el resumen. Un resumen semanal aparte incluye lo que más se ha movido.
+- **Pedido nuevo desde Trabajo o Pedido**: al guardar una Hoja de pedido, o cuando Taller envía algo por el chat, Almacén recibe tres cosas — correo, un banner dentro de la app (pulsarlo lleva directo a esa orden), y un pitido + notificación del sistema en cualquier dispositivo con la app abierta.
+- **Sin conexión**: banner en rojo si se corta el internet a media faena, avisando de que los cambios se siguen guardando en el dispositivo pero no se sincronizan hasta que vuelva. Avisa también al recuperarse.
+- **Sonido al escanear**: pitido corto al confirmar un escaneo con éxito (distinto del de "pedido nuevo"), desactivable en Almacén → Avisos.
 
-## 5. Crear una orden/proyecto subiendo un archivo (Excel, CSV o PDF)
+Todo lo anterior (banner, sonido, notificación del sistema) solo funciona con la app abierta en ese momento, aunque sea en segundo plano si está instalada — para que funcione con la app completamente cerrada haría falta notificaciones push de verdad (Firebase Cloud Messaging), una pieza bastante más grande de montar. El correo es el único de los avisos que llega siempre, esté la app abierta o no.
 
-Dentro de Montaje/Venta o Proyecto, con una orden o proyecto seleccionado (y el campo "¿Quién lo pide?" relleno), en el panel lateral hay un botón **"📄 Subir Excel / CSV / PDF"**. Busca cada línea del archivo en el stock (por código o por referencia) y la añade a la **solicitud pendiente** de esa orden (ver sección 8) — no descuenta stock directamente, eso solo pasa al preparar la recogida y firmar:
+## 5. Roles: Almacén y Taller
 
-- **Excel/CSV**: fiable — reconoce columnas llamadas Código, Referencia/Descripción y Cantidad (o similares).
-- **PDF**: "mejor esfuerzo" — un PDF no tiene columnas de verdad, así que la app intenta sacar de cada línea de texto algo con forma de "referencia ... cantidad al final". Funciona bien con listados sencillos, pero si el PDF tiene un diseño complicado (tablas con columnas separadas visualmente, varias líneas por artículo, etc.) puede no acertar. Si falla, prueba subiendo el Excel/CSV original en su lugar.
+Quien entra con la cuenta **`taller@tecnomat.es`** no ve la pestaña de Almacén, ni "Finalizar"/"Eliminar" en una orden, ni el botón "Asociar" en el chat — solo puede trabajar desde Trabajo y Pedido. Cualquier otra cuenta ve todo.
 
-Si una línea del archivo no coincide con ningún material del stock, la app la da de alta automáticamente como una **referencia "plantilla"** (sin stock real todavía) y la añade igualmente a la solicitud pendiente, para completarla más tarde con su código de verdad y meterle stock real.
+**Esto es una restricción de interfaz**, no de seguridad real — oculta botones y redirige, pero no impide técnicamente que alguien con conocimientos edite datos saltándose la pantalla. La restricción real (a nivel de base de datos) se configura en las reglas de Firestore, ver sección 3.
 
-Antes de aplicar el archivo, la app enseña un resumen línea a línea (qué hay en stock, qué queda incompleto, qué se crea como plantilla) y hay que pulsar **"Confirmar y aplicar"** — así se puede cancelar si el archivo se ha leído mal, sobre todo con PDFs complicados.
+## 6. Trabajo (Montaje/Venta y Proyecto) y su chat
 
-## 6. Instalar la app en el móvil (PWA)
+Montaje/Venta y Proyecto viven bajo una sola pestaña, **Trabajo** — al crear una orden se elige el tipo en un desplegable. Por dentro cada uno se sigue guardando por separado, solo cambia cómo se llega hasta ahí desde la pantalla.
 
-La app ahora se puede "instalar" como si fuera una app normal del móvil, gracias a `manifest.json`, `sw.js`, `icon-192.png` e `icon-512.png` (todos incluidos en esta carpeta — súbelos junto al `index.html`, todos a la raíz del repositorio).
+**El chat es la forma principal de pedir material** en una orden o proyecto, justo debajo del selector (que vive integrado ahí mismo, con "Finalizar"/"Eliminar" escondidos detrás de "Más opciones" para no saturar la pantalla, y "+ Nueva orden/proyecto" para crear otra):
+- Cada escaneo aparece como mensaje en el hilo, en orden, junto con avisos como "Hoja guardada", "Recogida confirmada y firmada" o "Asociado a...".
+- Se puede **escribir directamente** (no solo escanear) para pedir algo aunque no se sepa la referencia — queda como línea "sin referencia todavía".
+- **Solo Almacén** ve el botón **"Asociar"** en esas líneas, para enlazarlas con una referencia real (escaneando con la cámara o escribiendo el código a mano) — y si esa referencia no existe todavía, se puede dar de alta ahí mismo, con 0 unidades.
+- El chat tiene un alto fijo con su propio scroll, y se desplaza solo hasta el último mensaje.
+- La tabla de siempre (**Hoja de pedido**, y **Servido**/**Devuelto** para Almacén) sigue existiendo en su propia pestaña, para imprimir o repasar de un vistazo — el chat no la sustituye, conviven las dos.
 
-- **Android (Chrome)**: al entrar en la página, aparece un aviso de "Añadir a pantalla de inicio" (o menú ⋮ → "Instalar app").
+**¿Quién pide el material?** No es un campo fijo en pantalla — al crear una orden, una ventana lo pregunta y obliga a rellenarlo. Cada tanda de material (cada vez que se firma una entrega, la orden queda lista para una tanda nueva) puede ser pedida por alguien distinto: si hace falta, se vuelve a preguntar con una ventana en el momento de escanear o escribir, sin bloquear ni esconder el chat mientras tanto.
+
+**Flujo de entrega, con firma:**
+1. Se escanea o se pide por chat el material necesario — no descuenta stock todavía, queda en la "Solicitud pendiente de recoger".
+2. Al pulsar **"Preparar recogida y firmar"**, la app comprueba que hay stock real de cada línea.
+3. La persona que recoge firma con el dedo o el ratón.
+4. Al **"Confirmar entrega"** es cuando se descuenta el stock de verdad, y las líneas pasan a "Servido" — hasta ese momento no se ha tocado nada, por si se cancela a mitad de camino.
+5. Queda un registro (quién pidió, quién recogió y firmó, qué materiales) en "Entregas firmadas", exportable a Excel.
+
+Una orden o proyecto **no se cierra sola** al entregar material — sigue activa y se puede seguir añadiendo hasta que alguien de Almacén pulse "Finalizar" a propósito.
+
+## 7. Pedido
+
+Sirve para pedir material que falta en el almacén (por ejemplo, para reponer stock desde un proveedor) — no lleva firma, es un listado que se manda por correo. Tiene el mismo chat que Trabajo (con su pestaña "Chat" y "Lista"), pero aquí **se pregunta quién hace el pedido en cada escaneo o mensaje**, no solo una vez — pensado para un dispositivo que se comparte entre varias personas. Cada línea del chat muestra quién pidió esa unidad en concreto.
+
+## 8. Almacén
+
+- **Editar**: un único botón agrupa artículo, referencia, ubicación, categoría, coste y características en un solo formulario, en vez de un botón por dato. Aparte quedan **Cambiar cantidad**, **Etiqueta** (imprime código de barras), **+ Otra referencia** y **Eliminar**, que son acciones distintas de solo cambiar un dato.
+- **Filtros**: por categoría, solo stock bajo (0) o solo sin ubicar, combinables con la búsqueda de texto.
+- **Ubicaciones**: panel para mantener una lista (añadir/quitar) que autocompleta al escribir la ubicación de un material — sigue siendo texto libre, esto solo evita erratas.
+- **Valorización**: columna "Coste" reconocida al importar un Excel, o rellenable a mano por artículo. El resumen de Almacén muestra el valor total del inventario.
+- **Trazabilidad**: cada movimiento, eliminación y entrega firmada guarda el email de quien lo hizo (si hay login).
+- **Entrada/Salida al escanear**: interruptor junto al escáner para elegir si el escaneo suma o resta stock.
+- **Rendimiento con inventarios grandes**: la lista solo pinta 80 artículos a la vez, con "Cargar más" para ver el resto.
+- **Colores pensados para daltonismo**: ningún dato depende solo del color (siempre hay texto o número también). Pedido usa magenta y Stock bajo/OK usan rosa/verde azulado en vez de rojo/verde puros, para distinguirse bien bajo daltonismo rojo-verde.
+- **Tour inicial y botón "Ayuda"**: repaso corto de la app que aparece solo la primera vez, y se puede volver a abrir cuando se quiera.
+
+## 9. Crear una orden/proyecto subiendo un archivo (Excel, CSV o PDF)
+
+Dentro de Trabajo, con una orden seleccionada, hay un botón para subir un archivo. Busca cada línea en el stock (por código o referencia) y la añade a la solicitud pendiente — no descuenta stock directamente, eso solo pasa al preparar la recogida y firmar.
+
+- **Excel/CSV**: fiable, reconoce columnas tipo Código, Referencia/Descripción y Cantidad.
+- **PDF**: "mejor esfuerzo" — sin columnas reales, la app busca en cada línea de texto algo con forma de "referencia ... cantidad al final". Con listados sencillos funciona bien; con PDFs de diseño complicado puede no acertar — en ese caso, mejor subir el Excel/CSV original.
+
+Si una línea no coincide con nada del stock, se da de alta automáticamente como referencia "plantilla" (sin stock real) para completarla más tarde. Antes de aplicar el archivo, la app enseña un resumen línea a línea y pide confirmar.
+
+## 10. Instalar la app en el móvil (PWA)
+
+Gracias a `manifest.json`, `sw.js` y los iconos (súbelos todos junto al `index.html`):
+- **Android (Chrome)**: aviso de "Añadir a pantalla de inicio", o menú ⋮ → "Instalar app".
 - **iPhone (Safari)**: botón compartir → "Añadir a pantalla de inicio".
 
-Una vez instalada, abre en pantalla completa (sin la barra del navegador) y guarda una copia básica en caché para que, si se corta la conexión un momento, al menos no se quede en blanco.
+Una vez instalada, abre en pantalla completa y guarda una copia básica en caché para no quedarse en blanco si se corta la conexión un momento.
 
-**Aviso de "hay una versión nueva":** cuando subas cambios en el futuro, a quien tenga la app abierta (o instalada) le aparecerá un banner abajo del todo — *"Hay una versión nueva de la app disponible"* — con un botón **"Actualizar ahora"**. Hasta que no lo pulse, sigue con la versión que ya tenía cargada; no cambia nada de golpe a media tarea.
+Cuando se suben cambios nuevos, aparece un banner — *"Hay una versión nueva disponible"* — con un botón para actualizar. Hasta que no se pulse, sigue con la versión que ya tenía cargada.
 
-⚠️ **Importante para que esto funcione:** cada vez que subas un `index.html` con cambios, abre `sw.js` y sube en 1 el número de la primera línea de verdad del archivo:
+## Migrar a otro hosting o base de datos
+
+Todo lo que depende de Firebase vive dentro de un único objeto, `backend`, cerca del principio del `<script>` — el resto de la app nunca menciona Firebase, solo llama a `backend.get/set/delete/watch` y a `backend.auth.*`.
+
+- **El hosting** ya es independiente de Firebase — es un único archivo HTML, funciona en GitHub Pages, Netlify, Vercel, un servidor propio, o cualquier sitio que sirva archivos estáticos, sin cambiar nada.
+- **La base de datos** es lo que está concentrado en el objeto `backend`. Para migrar de verdad, hay que escribir un objeto nuevo con esta misma forma y sustituir el `backend = {...}` actual:
+
 ```js
-const CACHE_NAME = 'tecnomat-materiales-v4'; // súbelo a v5, v6... cada vez que subas cambios
+backend = {
+  async get(key){ /* devuelve el valor guardado bajo esa clave, o null */ },
+  async set(key, value){ /* guarda value bajo esa clave */ },
+  async delete(key){ /* borra esa clave */ },
+  watch(key, applyFn){ /* opcional: si el backend nuevo tiene tiempo real, se
+    suscribe y llama a applyFn(valor) cada vez que cambia; si no lo tiene, se
+    puede dejar sin hacer nada y la app sigue funcionando sin tiempo real */ },
+  async adjustStockAtomic(item, delta){ /* opcional: ajuste de stock a prueba de
+    que dos dispositivos escriban a la vez; si el backend nuevo no tiene
+    transacciones, aquí se puede hacer un "leer, sumar, guardar" normal */ },
+  auth: {
+    signIn(email, pass){ /* inicia sesión, devuelve una promesa */ },
+    signOut(){ /* cierra sesión */ },
+    onChange(cb){ /* llama a cb(usuario) cuando cambia la sesión, o cb(null) si no hay */ },
+    currentUserEmail(){ /* devuelve el email de quien ha iniciado sesión, o '' */ }
+  }
+};
 ```
-Si subes `index.html` nuevo pero te olvidas de tocar `sw.js`, el navegador no se entera de que hay nada distinto y el aviso no salta.
 
-## 7. Tiempo real, deshacer, actividad y acciones en bloque
+Si el proyecto nuevo no necesita usuarios con contraseña, `backend.auth` se puede simplificar mucho — lo único que usa el resto de la app es saber el email de quien está dentro y si puede cerrar sesión.
 
-- **Tiempo real**: si tienes Firebase configurado, los cambios que haga otra persona desde otro dispositivo (o desde otra pestaña tuya) se ven solos, sin recargar la página.
-- **Deshacer**: después de escanear algo (entrada de stock, añadir a una solicitud, añadir al pedido), sale un botón "↺ Deshacer" junto al aviso durante unos segundos, por si te equivocas.
-- **Menos riesgo de perder cantidades**: cuando dos dispositivos ajustan el mismo material casi a la vez (con Firebase configurado), la app usa una transacción para que no se pise un cambio con el otro.
-- **Panel "Actividad"** (dentro de Almacén): los 5 materiales que más se han movido en los últimos 30 días, con una barra sencilla.
-- **Resumen semanal por correo**: además del aviso diario de stock bajo, una vez a la semana te llega un resumen con lo que más se ha movido.
-- **Selección múltiple en el stock**: puedes marcar varias referencias a la vez y cambiarles la ubicación o eliminarlas todas juntas, en vez de una por una.
-- **Histórico de movimientos**: en vez de borrar sin más lo que sobra de las últimas 500 líneas, se archiva resumido por mes (entradas/salidas totales), así no se pierde el dato gordo aunque no se guarde cada línea suelta.
-
-## 8. Solicitud de taller con firma de recogida (Montaje/Venta y Proyecto)
-
-Todo el material que se sirve desde una orden de Montaje/Venta o un Proyecto pasa por este flujo — no hay escaneo directo que descuente stock al momento, siempre queda constancia de quién lo pidió y quién lo recogió:
-
-1. Con la orden/proyecto seleccionada, se rellena el campo **"¿Quién lo pide?"** (obligatorio — sin él no deja escanear).
-2. Se escanea o busca el material necesario. Cada línea se añade a la **"Solicitud pendiente de recoger"** — esto todavía **no descuenta stock**.
-3. Cuando el material está listo, se pulsa **"📝 Preparar recogida y firmar"** — en este momento la app comprueba que hay stock real de cada línea (si falta alguna, avisa y no deja continuar hasta ajustar cantidades o reponer stock).
-4. Se le entrega el dispositivo a la persona del taller que recoge el material, que firma con el dedo (o el ratón) en la pantalla. Ahí se ve tanto quién lo pidió como el listado de lo que se lleva.
-5. Al pulsar **"Confirmar entrega"**, es cuando de verdad se descuenta el stock y las líneas pasan a formar parte del listado "Servido" de esa orden/proyecto — hasta ese momento no se ha tocado nada, por si se cancela a mitad de camino.
-6. Queda guardado un registro (quién pidió, quién recogió y firmó, qué materiales) en "Entregas firmadas" dentro de esa misma orden/proyecto, exportable a Excel.
-
-**Nota:** el apartado **Pedido** es una cosa distinta y no lleva firma — sirve para pedir material que falta en el almacén (por ejemplo, para reponer stock desde un proveedor), y sigue funcionando como un simple listado que se manda por correo.
-
-## 9. Restringir la clave de Firebase por dominio (recomendado, requiere consola de Google Cloud)
-
-Esto no es un ajuste de código — es una configuración en la consola de Google, y hace falta tener acceso a esa cuenta:
-
-1. Ve a [console.cloud.google.com](https://console.cloud.google.com) y entra con la misma cuenta de Google con la que creaste el proyecto de Firebase.
-2. Arriba, asegúrate de tener seleccionado el proyecto correcto (`almacenamiento-datos-40e38`).
-3. Menú ☰ → **APIs y servicios → Credenciales**.
-4. Verás una clave de API (la misma que usas en `firebaseConfig`, empieza por `AIzaSy...`). Haz clic en ella.
-5. En **"Restricciones de aplicaciones"**, elige **"Sitios web"** y añade tu dominio de GitHub Pages, por ejemplo:
-   `tu-usuario.github.io/*`
-6. Guarda.
-
-Con esto, aunque alguien copie tu `apiKey` del código fuente, no podrá usarla desde ningún otro sitio que no sea tu propia página — una capa extra de seguridad, además de las reglas de Firestore y el login.
-
-## 10. Cuenta de taller sin acceso a Almacén
-
-Si alguien entra con el usuario **`taller@tecnomat.es`**, no ve la pestaña de Almacén — solo puede trabajar desde Montaje/Venta, Proyecto y Pedido. Cualquier otra cuenta (incluida `almacen@tecnomat.es`) sigue viendo todo.
-
-**Importante — esto es una restricción de interfaz, no de seguridad de verdad.** Simplemente oculta el botón y redirige si alguien llega ahí por error; no impide técnicamente que alguien con conocimientos edite los datos saltándose la pantalla. Si quieres que sea una restricción real, hay que tocar las reglas de Firestore para que el propio servidor rechace las escrituras de esa cuenta sobre el stock. Esto sí lo puedes hacer sin tocar código:
-
-1. Firebase Console → tu proyecto → **Firestore Database → Reglas**.
-2. Sustituye las reglas actuales por estas (mismo sitio de siempre, sección 8 de este documento):
-   ```
-   rules_version = '2';
-   service cloud.firestore {
-     match /databases/{database}/documents {
-       match /tecnomat_materiales/catalog {
-         allow read: if request.auth != null;
-         allow write: if request.auth != null && request.auth.token.email != 'taller@tecnomat.es';
-       }
-       match /tecnomat_materiales/movements {
-         allow read: if request.auth != null;
-         allow write: if request.auth != null && request.auth.token.email != 'taller@tecnomat.es';
-       }
-       match /tecnomat_materiales/{docId} {
-         allow read, write: if request.auth != null && docId != 'catalog' && docId != 'movements';
-       }
-     }
-   }
-   ```
-3. Publicar.
-
-Con esto, la cuenta de taller puede seguir leyendo el stock (lo necesita para que la solicitud de material compruebe cantidades disponibles), pero el propio Firestore rechaza cualquier intento de escritura sobre `catalog` o `movements` viniendo de esa cuenta — funcione o no la interfaz.
-
-## 11. Aviso de "pedido nuevo" para almacén
-
-Cuando alguien guarda una solicitud desde la Hoja de pedido (botón "💾 Guardar y avisar a almacén"), pasan tres cosas:
-
-1. Se manda un correo (si tienes EmailJS configurado) con el detalle línea a línea.
-2. Aparece un aviso dentro de la propia app, arriba del todo, visible para cualquiera que la tenga abierta — con el nombre de quien lo pidió, si es interno o externo, y cuántas líneas. Al pulsar sobre el aviso, te lleva directamente a esa orden/proyecto, en la pestaña de la Hoja de pedido.
-3. Suena un aviso (dos pitidos) y, si has dado permiso de notificaciones al navegador, sale también una notificación del sistema — igual que la de cualquier otra app del móvil.
-
-**Limitaciones reales:**
-- Todo esto (aviso en pantalla, sonido, notificación del sistema) solo funciona con la app **abierta** en ese momento — aunque esté en segundo plano si la tienes instalada. No hay forma de que suene nada con la app completamente cerrada; para eso haría falta configurar notificaciones push de verdad (Firebase Cloud Messaging), que es una pieza bastante más grande de montar.
-- El sonido depende de que el navegador permita reproducir audio — la primera vez que se abre la app, hasta que no toques la pantalla una vez (cualquier toque), el navegador puede bloquear el sonido por su propia política contra el autoplay. A partir de esa primera interacción, ya suena con normalidad el resto de la sesión.
-- El correo sí llega siempre, esté la app abierta o no — es lo único 100% fiable de los tres avisos.
-
-## 12. Interno / Externo
-
-Al crear una orden de Montaje/Venta o un proyecto, además del nombre y de quién pide el material, hay que indicar si es **Interno** o **Externo** — es obligatorio, igual que los otros dos campos. Se ve junto al nombre en el desplegable de selección, en la cabecera de la Hoja de pedido, y en el correo y aviso de pedido nuevo.
-
-## 13. Sobre el logo en los Excel exportados
-
-Las exportaciones a Excel (stock, movimientos, órdenes, entregas...) llevan **"TECNOMAT · Control de materiales"** como texto en la primera fila de cada hoja. No es el logo como imagen — la librería gratuita que usa la app para generar Excel (SheetJS) no permite insertar imágenes dentro del archivo, esa función es de pago en esa librería.
-
-Si en algún momento necesitas el logo real como imagen dentro del Excel, la vía sería partir de una plantilla `.xlsx` vuestra que ya tenga el logo puesto, y rellenar los datos dentro de esa plantilla en lugar de generar el archivo desde cero — es un planteamiento distinto y bastante más laborioso de montar.
-
-## 14. Rendimiento con inventarios grandes
-
-Con inventarios de miles de referencias, la lista de Almacén ahora solo pinta 80 a la vez, con un botón **"Cargar más"** al final para ver el resto — antes se pintaban todas de golpe, lo cual notaba lento con inventarios grandes (más aún con el estilo de esquina cortada del rediseño, que es más costoso de dibujar que un botón normal cuando se repite cientos de veces). Los botones de cada fila del stock (Cambiar ubicación, Categoría, Cantidad, Eliminar...) volvieron a un estilo más simple por el mismo motivo — el aspecto de "esquina cortada" se queda en las tarjetas, pestañas y botones principales, que aparecen pocas veces en pantalla, no en los que se repiten por cada artículo.
-
-## 15. Colores pensados para daltonismo
-
-Ningún sitio de la app depende solo del color para decir algo — siempre va acompañado de texto, número o icono (por ejemplo, la cantidad de stock se ve como número real, no solo como un color). Aun así, algunos colores estaban demasiado próximos entre sí para el daltonismo rojo-verde (el más común, ~8% de los hombres), así que se separaron:
-
-- **Pedido** pasó de rojo a **magenta**, para no chocar con el rojo de "stock bajo".
-- **Stock bajo / stock OK** pasaron de rojo/verde puros a **rosa/verde azulado (teal)** — mucho más distinguibles entre sí bajo daltonismo rojo-verde que el rojo y el verde clásicos.
-- El resto de colores (dorado de Almacén, naranja de Montaje, azul de Proyecto) se mantienen, ya estaban razonablemente separados.
-
-## 16. Búsqueda más fluida, trazabilidad, valorización y filtros en Almacén
-
-- **Búsqueda con pausa (debounce)**: en Almacén, el buscador global y el catálogo, ahora se espera una fracción de segundo tras dejar de teclear antes de filtrar, en vez de recalcular en cada letra — se nota sobre todo con inventarios grandes.
-- **Quién hizo cada cosa**: cada movimiento de stock, cada eliminación y cada entrega firmada guarda el email de la cuenta que lo hizo (si hay login con Firebase). Se ve en "Últimos movimientos" y en la exportación a Excel.
-- **Valorización de inventario**: al importar un Excel con columna "Coste" (o "Precio"), se reconoce sola. Hay un botón "Coste" en cada artículo para ponerlo o cambiarlo a mano. El resumen de Almacén muestra el valor total del inventario, y la exportación a Excel incluye coste unitario y valor total por línea.
-- **Filtros en Almacén**: por categoría, solo stock bajo (0) o solo sin ubicar — combinables entre sí y con la búsqueda de texto, con un botón para quitarlos todos de golpe.
-
-## 17. Ubicaciones, carga más rápida y tema claro/oscuro
-
-- **Ubicaciones estructuradas**: en Almacén → panel "Ubicaciones" se puede mantener una lista (añadir/quitar). Sigue siendo texto libre en el material — esto solo ofrece autocompletado al escribir, para evitar erratas como "Pasillo 3" y "pasillo3" siendo cosas distintas sin querer.
-- **Arranque más rápido**: las librerías de Excel y PDF (las más pesadas) ahora se cargan en paralelo con el resto de la página en vez de bloquear el arranque — no hace falta esperarlas para empezar a usar la app, solo se necesitan cuando de verdad exportas/importas algo.
-- **Tema claro/oscuro**: botón junto a "Cerrar sesión" (arriba a la derecha) para cambiar entre los dos. Es una preferencia de cada dispositivo/navegador, no se sincroniza entre aparatos como el resto de los datos — cada quien puede tener el suyo.
-
-## 18. Tour inicial, botón de Ayuda, e impresión de etiquetas
-
-- **Corregido un fallo real**: el tour inicial y el botón "Ayuda" ya estaban programados pero nunca se activaban — les faltaba la conexión final. Ahora sí: quien entra por primera vez ve el repaso corto de la app automáticamente, y el botón "Ayuda" (junto al de tema) lo vuelve a abrir cuando quieras.
-- **Imprimir etiqueta de código de barras**: botón "Etiqueta" en cada artículo del stock. Genera el código de barras (formato CODE128, a partir del propio Código) y abre el diálogo de impresión del navegador, mostrando solo la etiqueta — el resto de la pantalla no sale en el papel. La librería que dibuja el código de barras solo se descarga la primera vez que se usa este botón, no antes.
-
-## 19. Rendimiento: firmas de entrega y repintados en tiempo real
-
-- **Corregido un riesgo real**: las firmas de entrega se guardaban como imagen, hasta 200 de ellas juntas en el mismo documento de Firestore — con ese límite se podía llegar al máximo de 1MB por documento y que dejaran de guardarse firmas nuevas sin avisar. Ahora se guardan las 40 más recientes con la firma completa, y las más antiguas se archivan como un resumen (quién, cuándo, cuántas líneas) sin la imagen, que es lo que realmente ocupaba espacio.
-- **Repintados agrupados**: si llegan varios cambios en tiempo real casi a la vez (por ejemplo, de otro dispositivo tocando el stock y los movimientos casi a la vez), ahora se juntan en un solo repintado de la pantalla en vez de uno por cada documento que cambia.
-- Quedan dos ideas más pequeñas sobre la mesa (actualizar solo la fila que cambia en vez de las 80 visibles, y cargar menos movimientos de golpe al abrir la app) que, con los ajustes ya hechos hasta ahora, aportan bastante menos margen de mejora — no compensan el riesgo de tocar código por una ganancia tan pequeña.
-
-## 20. Un solo botón "Editar" en vez de seis
-
-Cada artículo del stock tenía 6 botones distintos para cambiar 6 datos distintos (artículo, referencia, ubicación, categoría, coste, características) — cada uno abría su propio cuadro. Ahora hay un único botón **"Editar"** que abre un formulario con todos esos campos juntos: se cambia lo que haga falta y se guarda todo de una vez. Los botones que quedan sueltos son los que son acciones de verdad distintas, no solo datos: **Cambiar cantidad** (mueve stock), **Etiqueta** (imprime), **+ Otra referencia** (crea un artículo nuevo) y **Eliminar**.
-
-## 21. Botones más cómodos y aviso de sin conexión
-
-- **Botones a 44px de alto** en toda la app (antes muchos estaban en 38px) — el mínimo recomendado para tocar bien, sobre todo con guantes.
-- **Aviso de "sin conexión"**: si se corta el internet a media faena, ahora aparece un aviso claro en rojo arriba de todo diciendo que los cambios se siguen guardando en el dispositivo pero no se están sincronizando con los demás — antes esto pasaba en completo silencio, sin que hubiera forma de saber que se había cortado la sincronización. En cuanto vuelve la conexión, avisa también de eso.
-
-## 22. Sonido al escanear, modo rápido, y letra ajustable
-
-- **Pitido al escanear con éxito**: un tono corto y agudo, distinto del de "pedido nuevo", para poder trabajar sin mirar la pantalla todo el rato. Se puede apagar en Almacén → Avisos si molesta.
-- **Modo rápido (x1)**: casilla junto al escáner, en cualquier sección — si se activa, cada escaneo cuenta como 1 unidad directamente, sin preguntar cantidad. Útil para tandas de artículos sueltos.
-
-## 23. Montaje y Proyecto unificados, y chat en Trabajo y Pedido
-
-- **Montaje/Venta y Proyecto pasan a ser una sola pestaña, "Trabajo"**. Al crear una orden o proyecto, se elige el tipo en un desplegable nuevo. Por dentro, cada uno se sigue guardando exactamente igual que antes (no hubo ninguna migración de datos, ni falta que hacía) — solo cambia cómo se llega hasta ahí desde la pantalla. El selector ahora muestra órdenes y proyectos juntos, cada uno con su etiqueta.
-- **Chat**: tanto en Trabajo (por cada orden/proyecto) como en Pedido, hay una pestaña nueva "Chat" — un hilo con lo que se va escaneando, en orden, además de avisos como "Hoja guardada", "Recogida confirmada y firmada" o "Pedido vaciado". Es la vista que sale por defecto al entrar. La tabla de siempre (Hoja de pedido / Lista) sigue existiendo tal cual, en su propia pestaña, para imprimir o repasar de un vistazo — el chat no la sustituye, conviven las dos.
-- **Se puede escribir en el chat de Trabajo**, no solo escanear — una caja de texto con cantidad, para pedir algo aunque no sepas la referencia. Ese mensaje queda como una línea "sin referencia todavía" en la solicitud. **Solo Almacén** ve un botón **"Asociar"** en esas burbujas, para enlazarlo con una referencia real del stock — y si esa referencia no existe todavía, la puede dar de alta ahí mismo (con 0 unidades, se ajusta la cantidad después). Taller no ve ese botón en ningún caso.
-
-## 24. Corregido un fallo real: el panel de Almacén se quedaba pegado en Trabajo
-
-Al entrar en Trabajo sin ninguna orden o proyecto seleccionado todavía, el panel lateral reventaba con un error de JavaScript real (intentaba leer datos de una solicitud que no existía porque no había ninguna orden elegida). Como el error interrumpía el pintado a mitad, el panel de Almacén de la pantalla anterior se quedaba pegado en pantalla — daba la sensación de que "Almacén se colaba en Trabajo", cuando en realidad era Trabajo el que nunca llegaba a pintarse del todo. Esto también podía dejar sin ver la caja de escribir del chat, al quedar la app en un estado confuso desde el principio. Corregido y comprobado ejecutando la app de verdad en una prueba automática, no solo revisando el código a ojo.
-
-## 25. Corregido otro fallo real: Taller nunca veía el chat
-
-Había una restricción de antes de que existiera el chat que forzaba siempre la pestaña "Hoja de pedido" para el perfil Taller, en cada repintado de la pantalla — pensada en su momento para ocultarle Servido/Devuelto. Sin darnos cuenta, esa misma restricción también tapaba el chat sin querer: aunque Taller pulsara la pestaña "Chat", la app la volvía a cambiar a Hoja de pedido al instante. Ahora solo se restringe Servido/Devuelto (lo que tenía sentido originalmente); Chat queda disponible para Taller, que es quien más lo va a usar para escribir peticiones. Comprobado con una prueba automática simulando ese perfil concreto.
-
-## 26. Corregido un fallo real de sincronización en tiempo real
-
-Al escribir en el chat de una orden/proyecto y guardar, la app también escucha esa misma orden por si cambia desde otro dispositivo. Ese "vigilante" sustituía por completo el objeto de la orden en memoria cada vez que recibía una confirmación de Firestore, en vez de actualizar el que ya había — así que si esto ocurría justo después de escribir un mensaje, el mensaje podía quedar en una copia ya descartada, sin llegar a verse en pantalla nunca, aunque la función que lo guarda estuviera bien. Ahora se actualiza el objeto que ya está en memoria en vez de reemplazarlo, evitando ese problema. Este fallo solo se manifestaba con Firebase real conectado, por eso no aparecía en las pruebas automáticas anteriores (que no usan una conexión real).
-
-## 27. Selector de orden/proyecto integrado en el propio chat
-
-El selector de orden/proyecto y el formulario de "crear nueva" ya no viven en una barra aparte por encima del escáner — ahora forman parte del mismo bloque que el chat, justo debajo del buscador, sin nada más en medio. Se elige o crea la orden ahí mismo, y justo debajo aparece su chat, sin tener que mirar en otro sitio de la pantalla.
-
-## 28. Menos botones apilados en Trabajo
-
-Las tres etiquetas de estado (Activo, Montaje, Interno) que antes salían como tres cajas separadas ahora van en una sola línea de texto compacta. "Finalizar" y "Eliminar" se quedan uno junto al otro en vez de apilados, incluso en móvil. Las cuatro pestañas (Chat, Hoja de pedido, Servido, Devuelto) pasan a ocupar dos por fila en móvil en vez de una columna larga de cuatro. También se movió el resumen de "Solicitud pendiente de recoger" para que vaya después del chat, no en medio del selector y el chat — así el chat queda visible sin hacer scroll de más.
-
-## 29. Finalizar/Eliminar solo para Almacén, y aviso al enviar por chat
-
-- **"Finalizar" y "Eliminar"** una orden o proyecto ya solo aparecen para Almacén — Taller no los ve.
-- **Al enviar algo por el chat**, si quien lo escribe es Taller, se avisa a Almacén igual que al guardar la Hoja de pedido: aviso dentro de la app (con su pitido, en cualquier dispositivo que tenga la app abierta) y correo si está configurado.
-
-## 30. Corregido un fallo real: el sonido no sonaba en el dispositivo que recibe el aviso
-
-El pitido de aviso creaba un `AudioContext` nuevo cada vez. Si en ese dispositivo no había habido ningún clic o toque justo antes (que es exactamente lo que pasa cuando el aviso llega solo, por los datos, desde otro dispositivo), el navegador dejaba ese `AudioContext` "suspendido" en silencio — sin ningún error, así que no había forma de notar por qué no sonaba. Ahora se usa un único `AudioContext` compartido, y el "desbloqueo" ya no es de una sola vez por sesión: se reintenta en cada toque, porque los navegadores (sobre todo en móvil) pueden volver a suspenderlo solos si la pestaña pasa un rato en segundo plano.
-
-Aviso honesto: esto depende de restricciones del propio navegador para reproducir sonido sin que hayas tocado nada, y algunos (especialmente Safari en iPhone) son más estrictos que otros — puede que en algún dispositivo concreto siga sin sonar el pitido en circunstancias muy puntuales. Como red de seguridad aparte del sonido, si le has dado permiso a la app para notificaciones del sistema (el aviso típico del propio teléfono/ordenador, no de la app), ese sí llega sin depender de esta restricción de audio.
-
-## 31. Limpieza de código
-
-Repaso sistemático de todo el archivo, buscando código que ya no cumple ninguna función:
-
-- **Una función huérfana eliminada** (`changeCoste`), que dejó de usarse desde que se unificó en el botón "Editar".
-- **Una clase CSS huérfana eliminada** (`.pill-current`, con su variante de móvil), de cuando las etiquetas de Trabajo eran cajas separadas en vez de una línea de texto.
-- **Un texto del tour inicial corregido**: seguía diciendo "las cuatro secciones: Montaje/Venta, Almacén, Proyecto y Pedido", cuando ahora son solo tres (Trabajo, Almacén, Pedido).
-- Comprobado que no quedan variables declaradas sin usar, ni reglas CSS duplicadas.
-
-No se ha tocado ninguna función que sí esté en uso, para no arriesgar nada que ya funcione.
-
-## 33. Selector más compacto, y chat con alto fijo
-
-- **Selector de orden/proyecto**: el desplegable y "+ Nueva" van ahora en una sola fila, en vez de dos. "Finalizar" y "Eliminar" se esconden detrás de un pequeño botón "Más opciones" — antes se veían siempre, aunque no se usan cada vez que abres una orden.
-- **El chat ya no crece sin límite**: tiene un alto fijo con su propio scroll interno, así que aunque se acumulen muchos mensajes, el resto de la pantalla no se ve empujado hacia abajo. Al entrar (o al llegar un mensaje nuevo), se desplaza solo hasta el último, sin tener que bajar a mano.
-
-## 34. "¿Quién pide?" ahora con una ventana, no un campo fijo
-
-En Trabajo, el formulario de crear orden/proyecto ya no tiene el campo "¿Quién pide el material?" — al pulsar "+ Crear", sale una ventana que lo pregunta y obliga a rellenarlo antes de crear de verdad (si se cancela o se deja en blanco, no se crea nada).
-
-En Pedido, se ha quitado el campo fijo que estaba siempre en pantalla — la ventana salta **cada vez** que escaneas o envías un mensaje por el chat, no solo la primera vez (pensado para un dispositivo compartido entre varias personas). Cada mensaje del chat de Pedido muestra quién pidió esa línea en concreto.
-
-## 35. Hoja de pedido en móvil, y escanear al asociar una referencia
-
-- **Hoja de pedido en móvil**: la tabla no tenía un ancho mínimo, así que en pantallas estrechas se aplastaba en vez de activar el scroll lateral que ya tenía preparado — ahora mantiene un ancho legible y se puede desplazar hacia los lados para ver todas las columnas.
-- **Escanear al asociar una referencia**: al pulsar "Asociar" en el chat (o "Asignar referencia" en la Hoja de pedido), ahora se puede elegir entre escanear el código con la cámara del móvil o escribirlo a mano, en vez de solo poder teclearlo.
-
-## 32. Segunda pasada de limpieza
-
-Repaso más a fondo: referencias a elementos que no existen, atributos `data-*` sin usar, CSS duplicado dentro de las secciones de móvil, y anotaciones de tareas pendientes olvidadas. Todo salió limpio, salvo un detalle real que sí encontré: **dos emojis** (⬇ y ⬆, en los botones de "Descargar todo" y "Restaurar" de la copia de seguridad) se habían colado después de la limpieza de emojis de hace unas cuantas respuestas — ya quitados.
+Todo lo demás — catálogo, movimientos, chat, órdenes, Pedido, Hoja de pedido, diseño, avisos — llama siempre a `safeGet`/`safeSet`/`safeDelete`/`watchKey`/`getUserRole`/`currentUserEmail`, que reparten el trabajo entre `backend` y los otros dos niveles de reserva. Cambiar de base de datos no debería tocar ni una línea fuera de este bloque.
