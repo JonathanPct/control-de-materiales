@@ -4258,12 +4258,22 @@
     // busco tanto en lo pendiente como en lo ya servido, porque el escandallo/pedido
     // se suele saber después de servir el material, no antes
     const buscarLineaHoja = (id) => target.pendiente.items.find(x => x.id === id) || target.servido.find(x => x.id === id);
+    // todas las líneas de esta hoja, para buscar un número ya puesto del mismo tipo
+    const todasLasLineasHoja = () => [...target.pendiente.items, ...target.servido];
     el.querySelectorAll('[data-hoja-texto]').forEach(inp=>{
       inp.addEventListener('change', ()=>{
         const it = buscarLineaHoja(inp.dataset.hojaId);
         if(!it) return;
         it[inp.dataset.hojaTexto] = inp.value.trim();
+        // al elegir Escandallo o Pedido, si esta línea todavía no tiene número y ya
+        // hay otra en la misma hoja con ese mismo tipo, copio su número — lo normal
+        // es que todas las líneas de un mismo escandallo/pedido compartan número
+        if(inp.dataset.hojaTexto === 'escandalloPedido' && it.escandalloPedido && !it.escandalloPedidoNumero){
+          const conNumero = todasLasLineasHoja().find(x => x.id !== it.id && x.escandalloPedido === it.escandalloPedido && x.escandalloPedidoNumero);
+          if(conNumero) it.escandalloPedidoNumero = conNumero.escandalloPedidoNumero;
+        }
         persistCurrentTarget();
+        render();
       });
     });
     const planoInput = $('#hojaPlanoInput');
