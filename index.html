@@ -4107,10 +4107,21 @@
                   const refCell = f.textoLibre
                     ? (esTaller ? '—' : `<button class="cam-btn" style="padding:7px 12px; font-size:12px;" data-asignar-ref="${f.id}">Asignar referencia</button>`)
                     : esc(f.referencia);
+                  // el escandallo/pedido se suele saber DESPUÉS de servir el material, así que
+                  // esta celda queda editable tanto en las líneas pendientes como en las ya
+                  // servidas — solo el resto de datos de una línea servida queda fijo
+                  const escandalloCell = esTaller ? (f.escandalloPedido ? esc(f.escandalloPedido)+(f.escandalloPedidoNumero?' Nº '+esc(f.escandalloPedidoNumero):'') : '—') : `
+                        <select class="hoja-num" data-hoja-id="${f.id}" data-hoja-texto="escandalloPedido" style="margin-bottom:4px;">
+                          <option value="" ${!f.escandalloPedido?'selected':''}>—</option>
+                          <option value="Escandallo" ${f.escandalloPedido==='Escandallo'?'selected':''}>Escandallo</option>
+                          <option value="Pedido" ${f.escandalloPedido==='Pedido'?'selected':''}>Pedido</option>
+                        </select>
+                        <input type="text" value="${esc(f.escandalloPedidoNumero)}" class="hoja-num" data-hoja-id="${f.id}" data-hoja-texto="escandalloPedidoNumero" placeholder="Nº" style="min-width:80px;">
+                      `;
                   if(!f.esPendiente || f.bloqueada){
                     return `
                     <tr style="opacity:.75;">
-                      ${esTaller ? '' : '<td></td>'}
+                      ${esTaller ? '' : `<td><input type="checkbox" class="hoja-select" data-select-hoja-id="${f.id}" ${selectedHojaIds.has(f.id)?'checked':''} style="width:16px; height:16px;"></td>`}
                       <td>${esc(ot)}</td>
                       <td>${f.fecha}</td>
                       <td class="col-articulo">${articuloCell}</td>
@@ -4118,7 +4129,7 @@
                       <td>${f.cantidad}</td>
                       <td>${f.pedido}</td>
                       <td>${f.reserva}</td>
-                      <td>${f.escandalloPedido ? esc(f.escandalloPedido)+(f.escandalloPedidoNumero?' Nº '+esc(f.escandalloPedidoNumero):'') : '—'}</td>
+                      <td>${escandalloCell}</td>
                       <td style="text-align:center;">${f.esPendiente ? '' : `<input type="checkbox" checked disabled> ${f.recibido}`}</td>
                     </tr>`;
                   }
@@ -4132,14 +4143,7 @@
                       <td><input type="number" min="0" value="${f.cantidad}" class="hoja-num" data-hoja-id="${f.id}" data-hoja-campo="qty"></td>
                       <td><input type="number" min="0" value="${f.pedido}" class="hoja-num" data-hoja-id="${f.id}" data-hoja-campo="pedido"></td>
                       <td><input type="number" min="0" value="${f.reserva}" class="hoja-num" data-hoja-id="${f.id}" data-hoja-campo="reserva"></td>
-                      <td>
-                        <select class="hoja-num" data-hoja-id="${f.id}" data-hoja-texto="escandalloPedido" style="margin-bottom:4px;">
-                          <option value="" ${!f.escandalloPedido?'selected':''}>—</option>
-                          <option value="Escandallo" ${f.escandalloPedido==='Escandallo'?'selected':''}>Escandallo</option>
-                          <option value="Pedido" ${f.escandalloPedido==='Pedido'?'selected':''}>Pedido</option>
-                        </select>
-                        <input type="text" value="${esc(f.escandalloPedidoNumero)}" class="hoja-num" data-hoja-id="${f.id}" data-hoja-texto="escandalloPedidoNumero" placeholder="Nº" style="min-width:80px;">
-                      </td>
+                      <td>${escandalloCell}</td>
                       <td style="text-align:center;">${esTaller ? '—' : `<input type="checkbox" data-hoja-recibido="${f.id}">`}</td>
                     </tr>`;
                 }).join('')}
@@ -4251,11 +4255,15 @@
         it[inp.dataset.hojaCampo] = Math.max(0, parseInt(inp.value,10)||0);
       });
     });
+    // busco tanto en lo pendiente como en lo ya servido, porque el escandallo/pedido
+    // se suele saber después de servir el material, no antes
+    const buscarLineaHoja = (id) => target.pendiente.items.find(x => x.id === id) || target.servido.find(x => x.id === id);
     el.querySelectorAll('[data-hoja-texto]').forEach(inp=>{
       inp.addEventListener('change', ()=>{
-        const it = target.pendiente.items.find(x => x.id === inp.dataset.hojaId);
+        const it = buscarLineaHoja(inp.dataset.hojaId);
         if(!it) return;
         it[inp.dataset.hojaTexto] = inp.value.trim();
+        persistCurrentTarget();
       });
     });
     const planoInput = $('#hojaPlanoInput');
@@ -4281,7 +4289,7 @@
         if(numero === null) return; // cancelado, no se toca nada
       }
       selectedHojaIds.forEach(id=>{
-        const it = target.pendiente.items.find(x => x.id === id);
+        const it = buscarLineaHoja(id);
         if(it){ it.escandalloPedido = valor; it.escandalloPedidoNumero = valor ? numero.trim() : ''; }
       });
       selectedHojaIds.clear();
