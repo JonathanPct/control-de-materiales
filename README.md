@@ -167,7 +167,7 @@ Montaje/Venta y Proyecto viven bajo una sola pestaña, **Trabajo** — al crear 
 4. Al **"Confirmar entrega"** es cuando se descuenta el stock de verdad, y las líneas pasan a "Servido" — hasta ese momento no se ha tocado nada, por si se cancela a mitad de camino.
 5. Queda un registro (quién pidió, quién recogió y firmó, qué materiales) en "Entregas firmadas", exportable a Excel.
 
-Cada línea de la Hoja de pedido tiene además un campo editable **"Escandallo/Pedido"** (si ese material se pasó a un escandallo de costes o a un pedido a proveedor), que se conserva al servir la línea. **"Plano"** es un dato de toda la orden, no por línea — se edita en la cabecera de la Hoja de pedido, junto a la OT.
+Cada línea de la Hoja de pedido tiene además dos campos editables: **"Escandallo/Pedido"** (si ese material se pasó a un escandallo de costes o a un pedido a proveedor) y su **número identificativo** — se conservan al servir la línea. Con la casilla por línea se pueden marcar varias a la vez ("Marcar como Escandallo" / "Marcar como Pedido", pidiendo un único número para todas las seleccionadas / "Quitar marca"), sin tener que ir una por una. **"Plano"** es un dato de toda la orden, no por línea — se edita en la cabecera de la Hoja de pedido, junto a la OT.
 
 Una orden o proyecto **no se cierra sola** al entregar material — sigue activa y se puede seguir añadiendo hasta que alguien de Almacén pulse "Finalizar" a propósito.
 

@@ -404,7 +404,7 @@
     color:var(--text-primary);
     white-space:nowrap;
   }
-  .hoja-pedido-table td:nth-child(3){white-space:normal; min-width:180px;}
+  .hoja-pedido-table td.col-articulo{white-space:normal; min-width:180px;}
   .hoja-pedido-table tr:last-child td{border-bottom:none;}
   .hoja-num{
     width:56px;
@@ -1273,6 +1273,7 @@
   let stockPageSize = 80; // con inventarios grandes, pintar todo de golpe es lo que más lagea
   let globalSearchTerm = ''; // el buscador de arriba de todo, funciona en cualquier sección
   let selectedStockIds = new Set(); // referencias marcadas en Almacén para acciones en bloque
+  let selectedHojaIds = new Set(); // líneas marcadas en la Hoja de pedido, para poner Escandallo/Pedido en varias a la vez
   let newGroupDraft = {nombre:'', requester:'', tipo:'', kind:'montaje'}; // lo que se va escribiendo al crear una orden/proyecto, para que no se borre con un repintado de fondo
   let cablesSearchTerm = ''; // buscador dentro del panel de Cables y mangueras
   const CATEGORIAS_STOCK = ['Material eléctrico', 'Material hidráulico', 'Manguera o cable', 'Artículos para cuadros'];
@@ -2052,7 +2053,7 @@
       const item = it.itemId ? state.catalog.find(m => m.id === it.itemId) : findInCatalog(it.code);
       if(!item) return;
       // ya firmada la recogida, entra al listado "servido" de verdad
-      addEntryToTarget(target, item, it.qty, {escandalloPedido: it.escandalloPedido});
+      addEntryToTarget(target, item, it.qty, {escandalloPedido: it.escandalloPedido, escandalloPedidoNumero: it.escandalloPedidoNumero});
       adjustStock(item, it.qty, 'salida', origen);
     });
     // vacío la solicitud pendiente de esa orden/proyecto, ya se ha convertido en servido
@@ -2201,9 +2202,10 @@
       existing.ts = nowStr(); // última actualización (no pisa la fecha de primera entrega)
       if(!existing.itemId) existing.itemId = item.id;
       if(extra.escandalloPedido) existing.escandalloPedido = extra.escandalloPedido;
+      if(extra.escandalloPedidoNumero) existing.escandalloPedidoNumero = extra.escandalloPedidoNumero;
     }else{
       const now = nowStr();
-      target.servido.unshift({id:uid(), itemId:item.id, code:item.code, desc:item.desc, qty, firstTs:now, ts:now, escandalloPedido: extra.escandalloPedido||''});
+      target.servido.unshift({id:uid(), itemId:item.id, code:item.code, desc:item.desc, qty, firstTs:now, ts:now, escandalloPedido: extra.escandalloPedido||'', escandalloPedidoNumero: extra.escandalloPedidoNumero||''});
     }
   }
 
@@ -4060,13 +4062,13 @@
         id: it.id, esPendiente: true, fecha: it.fechaGuardado || nowStr(), articulo: it.textoLibre ? '' : (it.code+' — '+it.desc),
         referencia: it.textoLibre ? '' : (it.referencia||''), textoLibre: it.textoLibre||'',
         cantidad: it.qty, pedido: (it.pedido!=null?it.pedido:it.qty), reserva: (it.reserva!=null?it.reserva:0), recibido: '',
-        escandalloPedido: it.escandalloPedido||'',
+        escandalloPedido: it.escandalloPedido||'', escandalloPedidoNumero: it.escandalloPedidoNumero||'',
         bloqueada: !!(it.guardado && esTaller)
       }));
       const filasServidas = target.servido.map(e => ({
         id: e.id, esPendiente: false, fecha: e.firstTs||e.ts, articulo: e.code+' — '+e.desc, referencia: e.referencia||'', textoLibre:'',
         cantidad: e.qty, pedido: e.qty, reserva: e.qty, recibido: e.firstTs||e.ts,
-        escandalloPedido: e.escandalloPedido||'',
+        escandalloPedido: e.escandalloPedido||'', escandalloPedidoNumero: e.escandalloPedidoNumero||'',
         bloqueada: true
       }));
       const filasHoja = [...filasPendientes, ...filasServidas];
@@ -4083,9 +4085,19 @@
           </div>
           <div class="ticket-body" style="overflow-x:auto;">
             ${filasHoja.length ? `
+            ${!esTaller ? `
+            <div class="scanner-row" style="margin-bottom:8px; align-items:center;">
+              <span style="font-size:12px; color:var(--text-faint); flex:1;">${selectedHojaIds.size ? selectedHojaIds.size+' línea(s) seleccionada(s)' : 'Marca varias líneas para ponerles Escandallo/Pedido a la vez'}</span>
+              ${selectedHojaIds.size ? `
+                <button class="cam-btn" id="marcarEscandalloBtn" style="flex:none;">Marcar como Escandallo</button>
+                <button class="cam-btn" id="marcarPedidoBtn" style="flex:none;">Marcar como Pedido</button>
+                <button class="btn-return" id="quitarMarcaBtn" style="flex:none;">Quitar marca</button>
+              ` : ''}
+            </div>
+            ` : ''}
             <table class="hoja-pedido-table">
               <thead>
-                <tr><th>OT</th><th>Fecha</th><th>Artículo</th><th>Referencia</th><th>Cantidad</th><th>Pedido</th><th>Reserva</th><th>Escandallo/Pedido</th><th>Recibido</th></tr>
+                <tr>${esTaller ? '' : '<th></th>'}<th>OT</th><th>Fecha</th><th>Artículo</th><th>Referencia</th><th>Cantidad</th><th>Pedido</th><th>Reserva</th><th>Escandallo/Pedido</th><th>Recibido</th></tr>
               </thead>
               <tbody>
                 ${filasHoja.map(f => {
@@ -4098,32 +4110,35 @@
                   if(!f.esPendiente || f.bloqueada){
                     return `
                     <tr style="opacity:.75;">
+                      ${esTaller ? '' : '<td></td>'}
                       <td>${esc(ot)}</td>
                       <td>${f.fecha}</td>
-                      <td>${articuloCell}</td>
+                      <td class="col-articulo">${articuloCell}</td>
                       <td>${refCell}</td>
                       <td>${f.cantidad}</td>
                       <td>${f.pedido}</td>
                       <td>${f.reserva}</td>
-                      <td>${f.escandalloPedido ? esc(f.escandalloPedido) : '—'}</td>
+                      <td>${f.escandalloPedido ? esc(f.escandalloPedido)+(f.escandalloPedidoNumero?' Nº '+esc(f.escandalloPedidoNumero):'') : '—'}</td>
                       <td style="text-align:center;">${f.esPendiente ? '' : `<input type="checkbox" checked disabled> ${f.recibido}`}</td>
                     </tr>`;
                   }
                   return `
                     <tr>
+                      ${esTaller ? '' : `<td><input type="checkbox" class="hoja-select" data-select-hoja-id="${f.id}" ${selectedHojaIds.has(f.id)?'checked':''} style="width:16px; height:16px;"></td>`}
                       <td>${esc(ot)}</td>
                       <td>${f.fecha}</td>
-                      <td>${articuloCell}</td>
+                      <td class="col-articulo">${articuloCell}</td>
                       <td>${refCell}</td>
                       <td><input type="number" min="0" value="${f.cantidad}" class="hoja-num" data-hoja-id="${f.id}" data-hoja-campo="qty"></td>
                       <td><input type="number" min="0" value="${f.pedido}" class="hoja-num" data-hoja-id="${f.id}" data-hoja-campo="pedido"></td>
                       <td><input type="number" min="0" value="${f.reserva}" class="hoja-num" data-hoja-id="${f.id}" data-hoja-campo="reserva"></td>
                       <td>
-                        <select class="hoja-num" data-hoja-id="${f.id}" data-hoja-texto="escandalloPedido">
+                        <select class="hoja-num" data-hoja-id="${f.id}" data-hoja-texto="escandalloPedido" style="margin-bottom:4px;">
                           <option value="" ${!f.escandalloPedido?'selected':''}>—</option>
                           <option value="Escandallo" ${f.escandalloPedido==='Escandallo'?'selected':''}>Escandallo</option>
                           <option value="Pedido" ${f.escandalloPedido==='Pedido'?'selected':''}>Pedido</option>
                         </select>
+                        <input type="text" value="${esc(f.escandalloPedidoNumero)}" class="hoja-num" data-hoja-id="${f.id}" data-hoja-texto="escandalloPedidoNumero" placeholder="Nº" style="min-width:80px;">
                       </td>
                       <td style="text-align:center;">${esTaller ? '—' : `<input type="checkbox" data-hoja-recibido="${f.id}">`}</td>
                     </tr>`;
@@ -4252,6 +4267,33 @@
         saveGroups(state.mode);
       });
     }
+    el.querySelectorAll('[data-select-hoja-id]').forEach(cb=>{
+      cb.addEventListener('change', ()=>{
+        if(cb.checked) selectedHojaIds.add(cb.dataset.selectHojaId);
+        else selectedHojaIds.delete(cb.dataset.selectHojaId);
+        render();
+      });
+    });
+    const marcarEnBloque = (valor) => {
+      let numero = '';
+      if(valor){
+        numero = prompt('Número de '+valor+' para las '+selectedHojaIds.size+' línea(s) seleccionada(s):');
+        if(numero === null) return; // cancelado, no se toca nada
+      }
+      selectedHojaIds.forEach(id=>{
+        const it = target.pendiente.items.find(x => x.id === id);
+        if(it){ it.escandalloPedido = valor; it.escandalloPedidoNumero = valor ? numero.trim() : ''; }
+      });
+      selectedHojaIds.clear();
+      persistCurrentTarget();
+      render();
+    };
+    const marcarEscandalloBtn = $('#marcarEscandalloBtn');
+    if(marcarEscandalloBtn) marcarEscandalloBtn.addEventListener('click', ()=> marcarEnBloque('Escandallo'));
+    const marcarPedidoBtn = $('#marcarPedidoBtn');
+    if(marcarPedidoBtn) marcarPedidoBtn.addEventListener('click', ()=> marcarEnBloque('Pedido'));
+    const quitarMarcaBtn = $('#quitarMarcaBtn');
+    if(quitarMarcaBtn) quitarMarcaBtn.addEventListener('click', ()=> marcarEnBloque(''));
     el.querySelectorAll('[data-hoja-recibido]').forEach(cb=>{
       cb.addEventListener('change', ()=>{
         // no se marca directo: esta casilla abre la pantalla de firma
