@@ -154,7 +154,7 @@ Montaje/Venta y Proyecto viven bajo una sola pestaña, **Trabajo** — al crear 
 **El chat es la forma principal de pedir material** en una orden o proyecto, justo debajo del selector (que vive integrado ahí mismo, con "Finalizar"/"Eliminar" escondidos detrás de "Más opciones" para no saturar la pantalla, y "+ Nueva orden/proyecto" para crear otra):
 - Cada escaneo aparece como mensaje en el hilo, en orden, junto con avisos como "Hoja guardada", "Recogida confirmada y firmada" o "Asociado a...".
 - Se puede **escribir directamente** (no solo escanear) para pedir algo aunque no se sepa la referencia — queda como línea "sin referencia todavía".
-- **Solo Almacén** ve el botón **"Asociar"** en esas líneas, para enlazarlas con una referencia real (escaneando con la cámara o escribiendo el código a mano) — y si esa referencia no existe todavía, se puede dar de alta ahí mismo, con 0 unidades.
+- **Solo Almacén** ve el botón **"Asociar"** en esas líneas, para enlazarlas con una referencia real (con el lector físico USB/Bluetooth, la cámara del móvil, o escribiéndolo a mano — un campo de texto normal acepta las tres formas) — y si esa referencia no existe todavía, se puede dar de alta ahí mismo, con 0 unidades.
 - El chat tiene un alto fijo con su propio scroll, y se desplaza solo hasta el último mensaje.
 - La tabla de siempre (**Hoja de pedido**, y **Servido**/**Devuelto** para Almacén) sigue existiendo en su propia pestaña, para imprimir o repasar de un vistazo — el chat no la sustituye, conviven las dos.
 
@@ -166,6 +166,8 @@ Montaje/Venta y Proyecto viven bajo una sola pestaña, **Trabajo** — al crear 
 3. La persona que recoge firma con el dedo o el ratón.
 4. Al **"Confirmar entrega"** es cuando se descuenta el stock de verdad, y las líneas pasan a "Servido" — hasta ese momento no se ha tocado nada, por si se cancela a mitad de camino.
 5. Queda un registro (quién pidió, quién recogió y firmó, qué materiales) en "Entregas firmadas", exportable a Excel.
+
+Cada línea de la Hoja de pedido tiene además un campo editable **"Escandallo/Pedido"** (si ese material se pasó a un escandallo de costes o a un pedido a proveedor), que se conserva al servir la línea. **"Plano"** es un dato de toda la orden, no por línea — se edita en la cabecera de la Hoja de pedido, junto a la OT.
 
 Una orden o proyecto **no se cierra sola** al entregar material — sigue activa y se puede seguir añadiendo hasta que alguien de Almacén pulse "Finalizar" a propósito.
 
@@ -180,7 +182,7 @@ Sirve para pedir material que falta en el almacén (por ejemplo, para reponer st
 - **Ubicaciones**: panel para mantener una lista (añadir/quitar) que autocompleta al escribir la ubicación de un material — sigue siendo texto libre, esto solo evita erratas.
 - **Valorización**: columna "Coste" reconocida al importar un Excel, o rellenable a mano por artículo. El resumen de Almacén muestra el valor total del inventario.
 - **Trazabilidad**: cada movimiento, eliminación y entrega firmada guarda el email de quien lo hizo (si hay login).
-- **Entrada/Salida al escanear**: interruptor junto al escáner para elegir si el escaneo suma o resta stock.
+- **Entrada/Salida al escanear**: interruptor junto al escáner para elegir si el escaneo suma o resta stock. El escáner va siempre justo debajo del buscador en Almacén, antes de la lista de stock — con inventarios largos, no queda empujado fuera de la vista.
 - **Rendimiento con inventarios grandes**: la lista solo pinta 80 artículos a la vez, con "Cargar más" para ver el resto.
 - **Colores pensados para daltonismo**: ningún dato depende solo del color (siempre hay texto o número también). Pedido usa magenta y Stock bajo/OK usan rosa/verde azulado en vez de rojo/verde puros, para distinguirse bien bajo daltonismo rojo-verde.
 - **Tour inicial y botón "Ayuda"**: repaso corto de la app que aparece solo la primera vez, y se puede volver a abrir cuando se quiera.

@@ -871,6 +871,18 @@
   <div class="panel" id="editItemCard" style="max-width:480px; width:100%; max-height:90vh; overflow-y:auto;"></div>
 </div>
 
+<div id="askCodeOverlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.7); align-items:center; justify-content:center; z-index:998; padding:16px;">
+  <div class="panel" style="max-width:420px; width:100%;">
+    <p class="panel-title" id="askCodeTitulo">Código de la referencia</p>
+    <input type="text" id="askCodeInput" placeholder="Escanea con el lector o escríbelo…" style="width:100%; margin-bottom:10px;">
+    <div class="scanner-row">
+      <button class="cam-btn" id="askCodeCamBtn" style="flex:1;">Usar cámara</button>
+      <button class="btn primary" id="askCodeOkBtn" style="flex:1;">Aceptar</button>
+    </div>
+    <button class="btn-return" id="askCodeCancelBtn" style="width:100%; margin-top:8px;">Cancelar</button>
+  </div>
+</div>
+
 <div id="etiquetaImprimir" class="solo-impresion">
   <div class="etiqueta-code"></div>
   <div class="etiqueta-desc"></div>
@@ -2040,7 +2052,7 @@
       const item = it.itemId ? state.catalog.find(m => m.id === it.itemId) : findInCatalog(it.code);
       if(!item) return;
       // ya firmada la recogida, entra al listado "servido" de verdad
-      addEntryToTarget(target, item, it.qty);
+      addEntryToTarget(target, item, it.qty, {escandalloPedido: it.escandalloPedido});
       adjustStock(item, it.qty, 'salida', origen);
     });
     // vacío la solicitud pendiente de esa orden/proyecto, ya se ha convertido en servido
@@ -2180,16 +2192,18 @@
   }
 
   // ---------- Add / Return ----------
-  function addEntryToTarget(target, item, qty){
+  function addEntryToTarget(target, item, qty, extra){
+    extra = extra || {};
     // entradas viejas sin itemId se reconocen por código
     const existing = target.servido.find(e => e.itemId ? e.itemId===item.id : e.code.toLowerCase()===item.code.toLowerCase());
     if(existing){
       existing.qty += qty;
       existing.ts = nowStr(); // última actualización (no pisa la fecha de primera entrega)
       if(!existing.itemId) existing.itemId = item.id;
+      if(extra.escandalloPedido) existing.escandalloPedido = extra.escandalloPedido;
     }else{
       const now = nowStr();
-      target.servido.unshift({id:uid(), itemId:item.id, code:item.code, desc:item.desc, qty, firstTs:now, ts:now});
+      target.servido.unshift({id:uid(), itemId:item.id, code:item.code, desc:item.desc, qty, firstTs:now, ts:now, escandalloPedido: extra.escandalloPedido||''});
     }
   }
 
@@ -2293,12 +2307,9 @@
       showStatus('Referencia asignada: '+item.code+' — '+item.desc);
     };
 
-    // se puede escanear con la cámara del móvil en vez de escribir el código a mano
-    if(confirm('¿Escanear el código de barras con la cámara? Cancelar para escribirlo a mano.')){
-      openCamera(codigo => continuarConCodigo(codigo));
-    }else{
-      continuarConCodigo(prompt('Código de la referencia real para "'+it.textoLibre+'":'));
-    }
+    // el campo de la ventana acepta tanto lo que escribe un lector físico como lo
+    // que se teclea a mano — la cámara queda como botón aparte, no obligatoria
+    pedirCodigoConEscaneo('Código de la referencia real para "'+it.textoLibre+'"').then(continuarConCodigo);
   }
 
   function proceedWithItem(item){
@@ -2729,7 +2740,7 @@
         let added = 0, withStock = 0;
         rows.forEach(row => {
           const keys = Object.keys(row);
-          // Artículo y Referencia son campos separados, ya no se pisan entre sí
+          // separo Artículo y Referencia para que no se confundan entre sí al leer el Excel
           const codeKey = keys.find(k => /^(c[oó]digo|code|codigo|sku)$/i.test(k.trim()));
           const descKey = keys.find(k => /^(descripci[oó]n|desc|art[ií]culo|material|nombre)$/i.test(k.trim()));
           const refKey = keys.find(k => /^(referencia|ref)$/i.test(k.trim()));
@@ -3062,6 +3073,45 @@
 
   let camStream = null;
   // recibe una función con el código leído — sirve para el escáner y para bobinas
+  // pide un código con una ventana propia — el campo de texto recibe tanto lo que
+  // escanea un lector físico (USB/Bluetooth, escribe como si fuera un teclado) como
+  // lo que se teclea a mano; la cámara queda aparte, como opción, no obligatoria
+  function pedirCodigoConEscaneo(titulo){
+    return new Promise(resolve => {
+      const overlay = $('#askCodeOverlay');
+      const input = $('#askCodeInput');
+      $('#askCodeTitulo').textContent = titulo;
+      input.value = '';
+      overlay.style.display = 'flex';
+      input.focus({preventScroll: true});
+
+      const cerrar = (valor) => {
+        overlay.style.display = 'none';
+        okBtn.removeEventListener('click', onOk);
+        cancelBtn.removeEventListener('click', onCancel);
+        camBtn.removeEventListener('click', onCam);
+        input.removeEventListener('keydown', onEnter);
+        resolve(valor);
+      };
+      const okBtn = $('#askCodeOkBtn');
+      const cancelBtn = $('#askCodeCancelBtn');
+      const camBtn = $('#askCodeCamBtn');
+      const onOk = () => cerrar(input.value.trim() || null);
+      const onCancel = () => cerrar(null);
+      const onCam = () => {
+        overlay.style.display = 'none';
+        openCamera(codigo => { cerrar(codigo); });
+      };
+      // el lector físico manda un "Enter" al terminar de escanear, igual que si
+      // alguien pulsara la tecla — así se acepta solo con escanear, sin más clics
+      const onEnter = (e) => { if(e.key === 'Enter'){ e.preventDefault(); onOk(); } };
+      okBtn.addEventListener('click', onOk);
+      cancelBtn.addEventListener('click', onCancel);
+      camBtn.addEventListener('click', onCam);
+      input.addEventListener('keydown', onEnter);
+    });
+  }
+
   async function openCamera(onDetected){
     if(!('BarcodeDetector' in window)){
       showStatus('Tu navegador no soporta escaneo por cámara. Usa un lector USB/Bluetooth o introduce el código manualmente.');
@@ -3110,6 +3160,16 @@
     renderPedidoNotifBanner();
     renderGlobalSearch();
     renderModeBar();
+    // en Almacén pongo el escáner ANTES de la lista de stock — con inventarios largos,
+    // dejarlo siempre después la empujaba fuera de la vista, dando la sensación de que
+    // había desaparecido. En Trabajo/Pedido lo dejo después, para que el chat quede
+    // pegado al buscador
+    const colsEl = document.querySelector('.cols');
+    const scannerZoneEl = $('#scannerZone');
+    if(colsEl && scannerZoneEl){
+      if(state.mode === 'almacen') colsEl.parentNode.insertBefore(scannerZoneEl, colsEl);
+      else colsEl.parentNode.insertBefore(scannerZoneEl, colsEl.nextSibling);
+    }
     renderScannerZone();
     if(state.mode === 'almacen') renderStockMain();
     else if(state.mode === 'pedido') renderPedidoMain();
@@ -3273,8 +3333,8 @@
   let mostrarFormNuevoTrabajo = false; // el formulario de "crear nuevo" empieza escondido, para no saturar la barra
   let mostrarMasOpcionesTrabajo = false; // Finalizar/Eliminar empiezan escondidos, para ocupar menos en móvil
 
-  // genera el HTML del selector/creador — ya no pinta en su propio hueco aparte,
-  // se inserta dentro del propio bloque del chat, para que todo vaya junto
+  // genero aquí el HTML del selector/creador de orden, para insertarlo dentro del
+  // propio bloque del chat — así el selector y el chat van siempre juntos
   function renderTrabajoSelectorHtml(){
     const kind = state.mode; // el tipo del elemento actualmente seleccionado, si hay uno
     const currentName = state.current[kind];
@@ -3324,8 +3384,8 @@
     `;
   }
 
-  // conecta los eventos del selector/creador — recibe el contenedor donde se insertó
-  // (ya no es un hueco fijo propio, así que busca dentro de ese contenedor, no global)
+  // conecto los eventos del selector/creador — busco dentro del contenedor donde lo
+  // inserté (el parámetro el), no de forma global, porque vive dentro del chat
   function wireTrabajoSelector(el){
     const kind = state.mode;
     const currentName = state.current[kind];
@@ -3356,8 +3416,8 @@
         const tipo = el.querySelector('#newGroupTipo').value;
         if(!nombre.trim()){ showStatus('Escribe el nombre de la orden o proyecto.'); return; }
         if(!tipo){ showStatus('Indica si el material es interno o externo — es obligatorio.'); return; }
-        // "¿quién pide?" ya no se escribe en el formulario — se pregunta con una
-        // ventana justo aquí, obligando a rellenarlo antes de crear de verdad
+        // pregunto quién pide el material con una ventana, justo aquí — así me
+        // aseguro de que no se crea la orden sin ese dato
         const requester = prompt('¿Quién pide el material para "'+nombre.trim()+'"? (obligatorio)');
         if(!requester || !requester.trim()){ showStatus('Hace falta indicar quién pide el material para crear la orden/proyecto.'); return; }
         newGroupDraft = {nombre:'', requester:'', tipo:'', kind: pickedKind};
@@ -4000,11 +4060,14 @@
         id: it.id, esPendiente: true, fecha: it.fechaGuardado || nowStr(), articulo: it.textoLibre ? '' : (it.code+' — '+it.desc),
         referencia: it.textoLibre ? '' : (it.referencia||''), textoLibre: it.textoLibre||'',
         cantidad: it.qty, pedido: (it.pedido!=null?it.pedido:it.qty), reserva: (it.reserva!=null?it.reserva:0), recibido: '',
+        escandalloPedido: it.escandalloPedido||'',
         bloqueada: !!(it.guardado && esTaller)
       }));
       const filasServidas = target.servido.map(e => ({
         id: e.id, esPendiente: false, fecha: e.firstTs||e.ts, articulo: e.code+' — '+e.desc, referencia: e.referencia||'', textoLibre:'',
-        cantidad: e.qty, pedido: e.qty, reserva: e.qty, recibido: e.firstTs||e.ts, bloqueada: true
+        cantidad: e.qty, pedido: e.qty, reserva: e.qty, recibido: e.firstTs||e.ts,
+        escandalloPedido: e.escandalloPedido||'',
+        bloqueada: true
       }));
       const filasHoja = [...filasPendientes, ...filasServidas];
 
@@ -4014,11 +4077,15 @@
             <span class="ticket-title">Hoja de pedido de materiales</span>
             <span class="ticket-title">OT: ${esc(ot)}${(findGroup(state.mode,ot)||{}).tipo ? ' · '+esc(findGroup(state.mode,ot).tipo) : ''}</span>
           </div>
+          <div style="display:flex; align-items:center; gap:8px; padding:10px 14px; border-bottom:1px solid var(--border);">
+            <label for="hojaPlanoInput" style="font-size:12px; font-weight:700; color:var(--text-faint); white-space:nowrap;">Plano:</label>
+            <input type="text" id="hojaPlanoInput" placeholder="Nº de plano de toda la orden" value="${esc((findGroup(state.mode,ot)||{}).plano||'')}" style="flex:1;">
+          </div>
           <div class="ticket-body" style="overflow-x:auto;">
             ${filasHoja.length ? `
             <table class="hoja-pedido-table">
               <thead>
-                <tr><th>OT</th><th>Fecha</th><th>Artículo</th><th>Referencia</th><th>Cantidad</th><th>Pedido</th><th>Reserva</th><th>Recibido</th></tr>
+                <tr><th>OT</th><th>Fecha</th><th>Artículo</th><th>Referencia</th><th>Cantidad</th><th>Pedido</th><th>Reserva</th><th>Escandallo/Pedido</th><th>Recibido</th></tr>
               </thead>
               <tbody>
                 ${filasHoja.map(f => {
@@ -4038,6 +4105,7 @@
                       <td>${f.cantidad}</td>
                       <td>${f.pedido}</td>
                       <td>${f.reserva}</td>
+                      <td>${f.escandalloPedido ? esc(f.escandalloPedido) : '—'}</td>
                       <td style="text-align:center;">${f.esPendiente ? '' : `<input type="checkbox" checked disabled> ${f.recibido}`}</td>
                     </tr>`;
                   }
@@ -4050,6 +4118,13 @@
                       <td><input type="number" min="0" value="${f.cantidad}" class="hoja-num" data-hoja-id="${f.id}" data-hoja-campo="qty"></td>
                       <td><input type="number" min="0" value="${f.pedido}" class="hoja-num" data-hoja-id="${f.id}" data-hoja-campo="pedido"></td>
                       <td><input type="number" min="0" value="${f.reserva}" class="hoja-num" data-hoja-id="${f.id}" data-hoja-campo="reserva"></td>
+                      <td>
+                        <select class="hoja-num" data-hoja-id="${f.id}" data-hoja-texto="escandalloPedido">
+                          <option value="" ${!f.escandalloPedido?'selected':''}>—</option>
+                          <option value="Escandallo" ${f.escandalloPedido==='Escandallo'?'selected':''}>Escandallo</option>
+                          <option value="Pedido" ${f.escandalloPedido==='Pedido'?'selected':''}>Pedido</option>
+                        </select>
+                      </td>
                       <td style="text-align:center;">${esTaller ? '—' : `<input type="checkbox" data-hoja-recibido="${f.id}">`}</td>
                     </tr>`;
                 }).join('')}
@@ -4161,6 +4236,22 @@
         it[inp.dataset.hojaCampo] = Math.max(0, parseInt(inp.value,10)||0);
       });
     });
+    el.querySelectorAll('[data-hoja-texto]').forEach(inp=>{
+      inp.addEventListener('change', ()=>{
+        const it = target.pendiente.items.find(x => x.id === inp.dataset.hojaId);
+        if(!it) return;
+        it[inp.dataset.hojaTexto] = inp.value.trim();
+      });
+    });
+    const planoInput = $('#hojaPlanoInput');
+    if(planoInput){
+      planoInput.addEventListener('change', ()=>{
+        const grupo = findGroup(state.mode, state.current[state.mode]);
+        if(!grupo) return;
+        grupo.plano = planoInput.value.trim();
+        saveGroups(state.mode);
+      });
+    }
     el.querySelectorAll('[data-hoja-recibido]').forEach(cb=>{
       cb.addEventListener('change', ()=>{
         // no se marca directo: esta casilla abre la pantalla de firma
