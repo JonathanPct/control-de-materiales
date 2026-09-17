@@ -12,6 +12,7 @@ El objetivo era tener una herramienta de almacén que no necesitara servidor pro
 - **SheetJS** para leer/escribir Excel y CSV directamente en el navegador.
 - **pdf.js** para extraer texto de PDFs al crear órdenes desde archivo (análisis heurístico línea a línea).
 - **JsBarcode** para generar e imprimir etiquetas de código de barras.
+- **jsPDF** para juntar las páginas escaneadas de un documento en un único PDF.
 - **Firebase (Firestore + Authentication)**, opcional, para guardado compartido en la nube con login — ver "Migrar a otro hosting o base de datos" si en algún momento se cambia de proveedor.
 - **EmailJS**, opcional, para mandar avisos por correo sin backend propio.
 - **`BarcodeDetector`** (API nativa del navegador) para escanear con la cámara del móvil.
@@ -175,6 +176,20 @@ Una orden o proyecto **no se cierra sola** al entregar material — sigue activa
 
 Sirve para pedir material que falta en el almacén (por ejemplo, para reponer stock desde un proveedor) — no lleva firma, es un listado que se manda por correo. Tiene el mismo chat que Trabajo (con su pestaña "Chat" y "Lista"), pero aquí **se pregunta quién hace el pedido en cada escaneo o mensaje**, no solo una vez — pensado para un dispositivo que se comparte entre varias personas. Cada línea del chat muestra quién pidió esa unidad en concreto.
 
+## 7b. Mantenimiento
+
+Pestaña para llevar el mantenimiento de los vehículos de la empresa (furgonetas, coches de reparto...), independiente del resto de secciones — no descuenta stock ni tiene escáner, es solo un seguimiento de fechas y kilometraje.
+
+- Se pueden dar de alta **varios vehículos** (matrícula, marca, modelo, año, kilómetros actuales), cambiando entre ellos con un desplegable, con botón para editarlos o eliminarlos. Se identifican por matrícula, como es natural en una flota de empresa.
+- **Mecánico habitual**: nombre y contacto (teléfono o email) por vehículo, visibles en el panel lateral.
+- **Fotos**: se pueden añadir fotos (con la cámara del móvil o desde archivo) enlazadas a cada vehículo, con una pequeña galería y opción de eliminarlas. Se comprimen automáticamente antes de guardarlas.
+- Cada tarea de mantenimiento (cambio de aceite, ITV, correa de distribución, frenos...) tiene un intervalo en **kilómetros y/o en meses** — avisa con lo que llegue antes. Hay una lista de tareas habituales que rellena los intervalos típicos al elegirlas, editables después.
+- Cada tarea se ve en verde (al día), naranja (pronto) o rojo (atrasada), con un resumen arriba del recuento de cada estado.
+- **"Hecho"** actualiza el kilometraje y la fecha de esa tarea con un par de datos, y recalcula sola la próxima vez.
+- **Los avisos de mantenimiento pendiente entran en el mismo sistema de avisos que ya usa el resto de la app**: aparecen en el banner de arriba (junto a los de stock bajo, si los hay) y en el correo diario, sin tener que entrar a mirar la pestaña a propósito.
+- No tiene buscador de stock ni escáner — esta sección no descuenta ni consulta material.
+- Los datos se guardan igual que el resto de la app — en la nube si Firebase está configurado, compartidos entre todos los dispositivos con la sesión iniciada.
+
 ## 8. Almacén
 
 - **Editar**: un único botón agrupa artículo, referencia, ubicación, categoría, coste y características en un solo formulario, en vez de un botón por dato. Aparte quedan **Cambiar cantidad**, **Etiqueta** (imprime código de barras), **+ Otra referencia** y **Eliminar**, que son acciones distintas de solo cambiar un dato.
@@ -195,6 +210,15 @@ Dentro de Trabajo, con una orden seleccionada, hay un botón para subir un archi
 - **PDF**: "mejor esfuerzo" — sin columnas reales, la app busca en cada línea de texto algo con forma de "referencia ... cantidad al final". Con listados sencillos funciona bien; con PDFs de diseño complicado puede no acertar — en ese caso, mejor subir el Excel/CSV original.
 
 Si una línea no coincide con nada del stock, se da de alta automáticamente como referencia "plantilla" (sin stock real) para completarla más tarde. Antes de aplicar el archivo, la app enseña un resumen línea a línea y pide confirmar.
+
+## 9b. Escanear un documento y guardarlo enlazado a su orden
+
+Dentro de Trabajo, cada orden/proyecto tiene su propio panel de "Documentos escaneados" — útil para digitalizar un listado de material en papel, un albarán, o cualquier papel que llegue y haya que guardar junto a esa orden en concreto.
+
+- **"Escanear documento"** abre la cámara del móvil. Se puede capturar **varias páginas seguidas** (cada una queda como una miniatura, y se puede tocar una para quitarla antes de terminar).
+- Al pulsar **"Convertir a PDF"**, todas las páginas capturadas se juntan en un único PDF, que queda guardado y enlazado a esa orden/proyecto — no a ninguna otra.
+- Desde el propio panel se puede **"Ver"** el PDF en una pestaña nueva, o **"Eliminar"** el documento.
+- Se guardan hasta 20 documentos por orden/proyecto; a partir de ahí, los más antiguos se van sustituyendo.
 
 ## 10. Instalar la app en el móvil (PWA)
 

@@ -54,6 +54,11 @@
     --accent-dim:#7A2B85;
     --accent-soft:rgba(196,79,209,0.16);
   }
+  #app.mode-mantenimiento{
+    --accent:#6FA23C;
+    --accent-dim:#3E5C22;
+    --accent-soft:rgba(111,162,60,0.16);
+  }
 
   /* tema claro — mismos colores por sección, ajustados para leerse bien sobre fondo claro.
      se declara también en html.tema-claro para que la pantalla de login (que está fuera
@@ -83,6 +88,9 @@
   }
   #app.tema-claro.mode-pedido{
     --accent:#9C3FA8; --accent-dim:#642769; --accent-soft:rgba(156,63,168,0.14);
+  }
+  #app.tema-claro.mode-mantenimiento{
+    --accent:#4D7A2A; --accent-dim:#31501A; --accent-soft:rgba(77,122,42,0.14);
   }
   *{box-sizing:border-box;}
 
@@ -614,6 +622,14 @@
   #camOverlay video{width:min(90vw,420px); border-radius:10px; border:2px solid var(--accent);}
   #camOverlay .cam-status{color:var(--text-primary); font-size:13px;}
 
+  #docScanOverlay{
+    position:fixed; inset:0; background:rgba(0,0,0,.85);
+    display:none; align-items:center; justify-content:center; z-index:999; flex-direction:column; gap:12px; padding:16px;
+  }
+  #docScanOverlay video{width:min(90vw,420px); border-radius:10px; border:2px solid var(--accent);}
+  #docScanOverlay .cam-status{color:var(--text-primary); font-size:13px;}
+  #docScanThumbs img{width:44px; height:44px; object-fit:cover; border-radius:5px; border:1px solid var(--accent);}
+
   #signatureOverlay{
     position:fixed; inset:0; background:rgba(20,15,5,.55);
     display:none; align-items:center; justify-content:center; z-index:999; padding:16px;
@@ -867,6 +883,17 @@
   <button class="btn ghost-danger" style="width:auto;padding:8px 20px;" id="camClose">Cerrar cámara</button>
 </div>
 
+<div id="docScanOverlay">
+  <video id="docScanVideo" autoplay playsinline muted></video>
+  <div class="cam-status" id="docScanStatus">Encuadra la página y pulsa "Capturar"</div>
+  <div id="docScanThumbs" style="display:flex; gap:6px; flex-wrap:wrap; max-width:90vw; justify-content:center;"></div>
+  <div style="display:flex; gap:8px;">
+    <button class="btn" style="width:auto; padding:8px 18px;" id="docScanCapturarBtn">Capturar página</button>
+    <button class="btn primary" style="width:auto; padding:8px 18px;" id="docScanFinalizarBtn" disabled>Convertir a PDF</button>
+  </div>
+  <button class="btn ghost-danger" style="width:auto;padding:8px 20px;" id="docScanCerrarBtn">Cancelar</button>
+</div>
+
 <div id="editItemOverlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.7); align-items:center; justify-content:center; z-index:998; padding:16px;">
   <div class="panel" id="editItemCard" style="max-width:480px; width:100%; max-height:90vh; overflow-y:auto;"></div>
 </div>
@@ -881,6 +908,10 @@
     </div>
     <button class="btn-return" id="askCodeCancelBtn" style="width:100%; margin-top:8px;">Cancelar</button>
   </div>
+</div>
+
+<div id="mantOverlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.7); align-items:center; justify-content:center; z-index:998; padding:16px;">
+  <div class="panel" id="mantOverlayCard" style="max-width:440px; width:100%; max-height:90vh; overflow-y:auto;"></div>
 </div>
 
 <div id="etiquetaImprimir" class="solo-impresion">
@@ -1252,6 +1283,9 @@
     bobinas: [],              // [{id, desc, matricula, expira:'YYYY-MM-DD', createdAt}]
     pedidoItems: [],          // [{id, code, desc, qty}] - el listado que voy montando para pedir material
     pedidoRequesterName: '', // quién pide el material — obligatorio antes de escanear o escribir, igual que en Trabajo
+    vehiculos: [], // [{id, matricula, marca, modelo, anio, kmActual}]
+    tareasMantenimiento: [], // [{id, vehiculoId, nombre, intervaloKm, intervaloMeses, ultimoKm, ultimaFecha}]
+    vehiculoActualId: null,
     pedidoChat: [],           // [{id, texto, ts, tsMs}] - el mismo chat que en Trabajo, pero para Pedido
     pendingDelivery: null,    // {items:[...], recipientName} - el pedido ya congelado, esperando la firma
     deliveries: [],            // [{id, items, recipientName, signature, ts, tsMs}] - entregas ya firmadas
@@ -1284,7 +1318,7 @@
   const $ = sel => document.querySelector(sel);
   const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2,7);
   // forma por defecto de los datos de una orden/proyecto
-  function emptyGroupData(){ return {servido:[], devuelto:[], pendiente:{requesterName:'', items:[]}, chat:[]}; }
+  function emptyGroupData(){ return {servido:[], devuelto:[], pendiente:{requesterName:'', items:[]}, chat:[], documentos:[]}; }
 
   // ejemplos de ficha, no referencias reales — de ahí el prefijo "EJEMPLO-"
   const nowStr = () => new Date().toLocaleString('es-ES');
@@ -1398,10 +1432,10 @@
   }
 
   async function loadAll(){
-    const [catalog, movements, groupsMontaje, groupsProyecto, oldLists, oldProjects, appState, bobinas, settings, alerts, pedidoItems, movementsArchive, deliveries, notifications, ubicaciones, deliveriesArchive, pedidoChat, pedidoRequesterName] = await Promise.all([
+    const [catalog, movements, groupsMontaje, groupsProyecto, oldLists, oldProjects, appState, bobinas, settings, alerts, pedidoItems, movementsArchive, deliveries, notifications, ubicaciones, deliveriesArchive, pedidoChat, pedidoRequesterName, vehiculos, tareasMantenimiento] = await Promise.all([
       safeGet('catalog'), safeGet('movements'), safeGet('groups_montaje'), safeGet('groups_proyecto'),
       safeGet('lists'), safeGet('projects'), safeGet('app_state'),
-      safeGet('bobinas'), safeGet('settings'), safeGet('alerts_state'), safeGet('pedido_items'), safeGet('movements_archive'), safeGet('deliveries'), safeGet('notifications'), safeGet('ubicaciones'), safeGet('deliveries_archive'), safeGet('pedido_chat'), safeGet('pedido_requester')
+      safeGet('bobinas'), safeGet('settings'), safeGet('alerts_state'), safeGet('pedido_items'), safeGet('movements_archive'), safeGet('deliveries'), safeGet('notifications'), safeGet('ubicaciones'), safeGet('deliveries_archive'), safeGet('pedido_chat'), safeGet('pedido_requester'), safeGet('vehiculos'), safeGet('tareas_mantenimiento')
     ]);
     if(catalog) state.catalog = catalog.map(m => ({id:m.id||uid(), code:m.code, desc:m.desc, qty: typeof m.qty==='number'?m.qty:0, location:m.location||'', specs:m.specs||'', marca:m.marca||'', referencia:m.referencia||'', categoria:m.categoria||'', coste:typeof m.coste==='number'?m.coste:0}));
     if(movements) state.movements = movements;
@@ -1410,6 +1444,9 @@
     if(pedidoItems) state.pedidoItems = pedidoItems;
     if(pedidoChat) state.pedidoChat = pedidoChat;
     if(pedidoRequesterName) state.pedidoRequesterName = pedidoRequesterName;
+    if(vehiculos) state.vehiculos = vehiculos;
+    if(tareasMantenimiento) state.tareasMantenimiento = tareasMantenimiento;
+    if(state.vehiculos.length && !state.vehiculoActualId) state.vehiculoActualId = state.vehiculos[0].id;
     if(deliveries) state.deliveries = deliveries;
     if(notifications) state.notifications = notifications;
     if(ubicaciones) state.ubicaciones = ubicaciones;
@@ -1428,6 +1465,7 @@
       state.mode = appState.mode || 'almacen';
       state.current.montaje = appState.currentMontajeOrder || null;
       state.current.proyecto = appState.currentProject || null;
+      if(appState.vehiculoActualId) state.vehiculoActualId = appState.vehiculoActualId;
     }
     // migración: lista plana antigua -> orden "General"
     if(!groupsMontaje && oldLists && oldLists.montaje && (oldLists.montaje.servido.length || oldLists.montaje.devuelto.length)){
@@ -1510,7 +1548,7 @@
     });
   }
 
-  function saveAppState(){ safeSet('app_state', {mode:state.mode, currentMontajeOrder:state.current.montaje, currentProject:state.current.proyecto}); }
+  function saveAppState(){ safeSet('app_state', {mode:state.mode, currentMontajeOrder:state.current.montaje, currentProject:state.current.proyecto, vehiculoActualId:state.vehiculoActualId}); }
   function saveCatalog(){ safeSet('catalog', state.catalog); }
   function saveMovements(){
     // lo que sobra de 500 se resume por mes en vez de borrarse sin más
@@ -1546,6 +1584,34 @@
   function saveBobinas(){ safeSet('bobinas', state.bobinas); }
   function savePedido(){ safeSet('pedido_items', state.pedidoItems); }
   function savePedidoRequester(){ safeSet('pedido_requester', state.pedidoRequesterName); }
+  function saveVehiculos(){ safeSet('vehiculos', state.vehiculos); }
+  function saveTareasMantenimiento(){ safeSet('tareas_mantenimiento', state.tareasMantenimiento); }
+
+  const MS_DIA = 86400000;
+  function sumarMeses(iso, meses){
+    const d = new Date(iso+'T00:00:00');
+    d.setMonth(d.getMonth()+meses);
+    return d.toISOString().slice(0,10);
+  }
+  // calculo cuándo toca cada tarea, y su estado (al día / pronto / atrasada) según lo
+  // que llegue antes entre el kilometraje y la fecha — igual que en la bitácora suelta
+  function calcularEstadoTarea(t, kmActual){
+    let proximoKm = null, proximaFecha = null;
+    if(t.intervaloKm && t.ultimoKm != null) proximoKm = t.ultimoKm + t.intervaloKm;
+    if(t.intervaloMeses && t.ultimaFecha) proximaFecha = sumarMeses(t.ultimaFecha, t.intervaloMeses);
+    let kmRestantes = proximoKm != null ? proximoKm - kmActual : null;
+    let diasRestantes = proximaFecha != null ? Math.round((new Date(proximaFecha+'T00:00:00') - new Date(hoyISO()+'T00:00:00')) / MS_DIA) : null;
+    let estado = 'ok';
+    if((kmRestantes != null && kmRestantes <= 0) || (diasRestantes != null && diasRestantes <= 0)) estado = 'atrasada';
+    else if((kmRestantes != null && kmRestantes <= 800) || (diasRestantes != null && diasRestantes <= 30)) estado = 'pronto';
+    let urgencia = Infinity;
+    if(kmRestantes != null) urgencia = Math.min(urgencia, kmRestantes);
+    if(diasRestantes != null) urgencia = Math.min(urgencia, diasRestantes * 33); // ~33km/día, solo para comparar
+    return {proximoKm, proximaFecha, kmRestantes, diasRestantes, estado, urgencia};
+  }
+  function hoyISO(){ return new Date().toISOString().slice(0,10); }
+  function vehiculoActual(){ return state.vehiculos.find(v => v.id === state.vehiculoActualId) || null; }
+  function tareasDelVehiculo(vid){ return state.tareasMantenimiento.filter(t => t.vehiculoId === vid); }
 
   // pregunta quién hace el pedido con una ventana, solo si todavía no se sabe —
   // en vez de un campo fijo siempre visible en pantalla
@@ -1829,6 +1895,21 @@
       document.head.appendChild(s);
     });
     return jsBarcodePromise;
+  }
+
+  // jsPDF solo se carga la primera vez que hace falta convertir páginas escaneadas a PDF
+  let jsPdfPromise = null;
+  function ensureJsPDF(){
+    if(typeof window.jspdf !== 'undefined') return Promise.resolve();
+    if(jsPdfPromise) return jsPdfPromise;
+    jsPdfPromise = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error('No se pudo cargar el generador de PDF'));
+      document.head.appendChild(s);
+    });
+    return jsPdfPromise;
   }
 
   async function imprimirEtiqueta(id){
@@ -2130,6 +2211,13 @@
       let msg = 'Bobinas a punto de expirar:\n\n';
       bobinasExp.forEach(b => { msg += '- '+(b.codigo?b.codigo+' · ':'')+b.desc+' · matrícula '+b.matricula+' · devolver antes del '+b.expira+'\n'; });
       sendEmailAlert('Aviso: bobinas a punto de expirar', msg);
+    }
+
+    const mantenimientoPendiente = getMantenimientoPendiente();
+    if(mantenimientoPendiente.length){
+      let msg = 'Mantenimiento de vehículos pendiente:\n\n';
+      mantenimientoPendiente.forEach(m => { msg += '- '+m.vehiculo+' — '+m.tarea+' · '+(m.estado==='atrasada'?'ATRASADA':'pronto')+'\n'; });
+      sendEmailAlert('Aviso: mantenimiento de vehículos pendiente', msg);
     }
 
     state.alerts.lastDailyCheck = todayStr();
@@ -3149,6 +3237,91 @@
   }
   $('#camClose').addEventListener('click', closeCamera);
 
+  // ---------- Escáner de documentos (varias páginas -> un PDF, enlazado a la OT) ----------
+  let docScanStream = null;
+  let docScanPaginas = []; // fotos capturadas en esta sesión de escaneo, en orden
+
+  async function abrirEscanerDocumento(){
+    if(!currentTarget()){ showStatus('Selecciona primero una orden o proyecto.'); return; }
+    const overlay = $('#docScanOverlay');
+    const video = $('#docScanVideo');
+    docScanPaginas = [];
+    renderDocScanThumbs();
+    overlay.style.display = 'flex';
+    try{
+      docScanStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+      video.srcObject = docScanStream;
+    }catch(e){
+      $('#docScanStatus').textContent = 'No se pudo acceder a la cámara: '+e.message;
+    }
+  }
+  function cerrarEscanerDocumento(){
+    if(docScanStream){ docScanStream.getTracks().forEach(t=>t.stop()); docScanStream=null; }
+    $('#docScanOverlay').style.display = 'none';
+    docScanPaginas = [];
+  }
+  function capturarPaginaDocumento(){
+    const video = $('#docScanVideo');
+    if(!video.videoWidth) return; // la cámara todavía no ha arrancado del todo
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0);
+    docScanPaginas.push(canvas.toDataURL('image/jpeg', 0.75));
+    renderDocScanThumbs();
+  }
+  function renderDocScanThumbs(){
+    $('#docScanThumbs').innerHTML = docScanPaginas.map((p,i)=>`<img src="${p}" data-quitar-pagina="${i}" title="Pulsa para quitar esta página">`).join('');
+    $('#docScanFinalizarBtn').disabled = docScanPaginas.length === 0;
+    $('#docScanStatus').textContent = docScanPaginas.length
+      ? docScanPaginas.length+' página(s) capturada(s) — toca una foto para quitarla'
+      : 'Encuadra la página y pulsa "Capturar página"';
+    $('#docScanThumbs').querySelectorAll('[data-quitar-pagina]').forEach(img=>{
+      img.addEventListener('click', ()=>{
+        docScanPaginas.splice(parseInt(img.dataset.quitarPagina,10), 1);
+        renderDocScanThumbs();
+      });
+    });
+  }
+  async function finalizarEscaneoDocumento(){
+    if(!docScanPaginas.length) return;
+    const target = currentTarget();
+    if(!target) return;
+    $('#docScanStatus').textContent = 'Generando el PDF…';
+    try{
+      await ensureJsPDF();
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF({unit:'pt', format:'a4'});
+      for(let i=0; i<docScanPaginas.length; i++){
+        if(i>0) pdf.addPage();
+        const img = await new Promise((resolve, reject) => {
+          const im = new Image();
+          im.onload = () => resolve(im);
+          im.onerror = reject;
+          im.src = docScanPaginas[i];
+        });
+        const pageW = pdf.internal.pageSize.getWidth();
+        const pageH = pdf.internal.pageSize.getHeight();
+        const ratio = Math.min(pageW/img.width, pageH/img.height);
+        const w = img.width*ratio, h = img.height*ratio;
+        pdf.addImage(docScanPaginas[i], 'JPEG', (pageW-w)/2, (pageH-h)/2, w, h);
+      }
+      const dataUrl = pdf.output('datauristring');
+      target.documentos = target.documentos || [];
+      target.documentos.unshift({id:uid(), nombre:'Documento escaneado '+(target.documentos.length+1), fecha:nowStr(), paginas:docScanPaginas.length, dataUrl});
+      if(target.documentos.length > 20) target.documentos = target.documentos.slice(0,20); // no crece sin límite
+      persistCurrentTarget();
+      cerrarEscanerDocumento();
+      render();
+      showStatus('PDF guardado y enlazado a esta orden/proyecto.');
+    }catch(e){
+      $('#docScanStatus').textContent = 'Error generando el PDF: '+e.message;
+    }
+  }
+  $('#docScanCapturarBtn').addEventListener('click', capturarPaginaDocumento);
+  $('#docScanFinalizarBtn').addEventListener('click', finalizarEscaneoDocumento);
+  $('#docScanCerrarBtn').addEventListener('click', cerrarEscanerDocumento);
+
   // ---------- Render ----------
   function render(){
     if(state.mode === 'almacen' && getUserRole() === 'taller') state.mode = 'montaje'; // taller no entra aquí, ni de rebote
@@ -3175,6 +3348,7 @@
     renderScannerZone();
     if(state.mode === 'almacen') renderStockMain();
     else if(state.mode === 'pedido') renderPedidoMain();
+    else if(state.mode === 'mantenimiento') renderMantenimientoMain();
     else renderMainList();
     renderSidePanel();
     renderSignatureOverlay();
@@ -3186,6 +3360,7 @@
   function renderGlobalSearch(){
     const zone = $('#globalSearchZone');
     if(!zone) return;
+    if(state.mode === 'mantenimiento'){ zone.innerHTML = ''; return; } // esto es stock, no aplica aquí
     zone.innerHTML = `
       <div class="global-search">
         <input type="text" id="globalStockSearch" placeholder="Buscar en el stock por código o referencia…" value="${esc(globalSearchTerm)}">
@@ -3236,12 +3411,26 @@
   }
 
   // aviso que salta en cualquier apartado si hay algo pendiente
+  // recorre TODOS los vehículos (no solo el que se esté viendo ahora) buscando tareas
+  // atrasadas o próximas, para el banner de avisos y el correo diario
+  function getMantenimientoPendiente(){
+    const resultado = [];
+    state.vehiculos.forEach(v => {
+      tareasDelVehiculo(v.id).forEach(t => {
+        const c = calcularEstadoTarea(t, v.kmActual||0);
+        if(c.estado !== 'ok') resultado.push({vehiculo: v.matricula, tarea: t.nombre, estado: c.estado});
+      });
+    });
+    return resultado;
+  }
+
   function renderAlertBanner(){
     const el = $('#alertBanner');
     if(!el) return;
     const bobinasExp = getExpiringBobinas();
     const bajoStock = getLowStockItems();
-    if(!bobinasExp.length && !bajoStock.length){
+    const mantenimientoPendiente = getMantenimientoPendiente();
+    if(!bobinasExp.length && !bajoStock.length && !mantenimientoPendiente.length){
       el.style.display = 'none';
       el.innerHTML = '';
       return;
@@ -3249,8 +3438,15 @@
     const partes = [];
     if(bajoStock.length) partes.push(bajoStock.length+' material(es) con '+state.settings.stockBajoUmbral+' unidades o menos');
     if(bobinasExp.length) partes.push(bobinasExp.length+' bobina(s) a punto de expirar');
+    if(mantenimientoPendiente.length){
+      const atrasadas = mantenimientoPendiente.filter(m=>m.estado==='atrasada').length;
+      partes.push(mantenimientoPendiente.length+' revisión(es) de vehículo pendiente(s)'+(atrasadas?' ('+atrasadas+' atrasada(s))':''));
+    }
     el.style.display = 'block';
-    el.innerHTML = 'Aviso: ' + partes.join(' · ') + '. Revísalo en Almacén.';
+    const sitios = [];
+    if(bajoStock.length || bobinasExp.length) sitios.push('Almacén');
+    if(mantenimientoPendiente.length) sitios.push('Mantenimiento');
+    el.innerHTML = 'Aviso: ' + partes.join(' · ') + '. Revísalo en '+sitios.join(' o ')+'.';
   }
 
   // aviso de "pedido nuevo" — pulsar una línea lleva a la Hoja de pedido de esa orden
@@ -3310,7 +3506,7 @@
     const bar = $('#modeBar');
     const esTaller = getUserRole() === 'taller';
     const enTrabajo = state.mode === 'montaje' || state.mode === 'proyecto';
-    const modes = [['trabajo','Trabajo',''],['almacen','Almacén',' (Stock)'],['pedido','Pedido','']]
+    const modes = [['trabajo','Trabajo',''],['almacen','Almacén',' (Stock)'],['pedido','Pedido',''],['mantenimiento','Mantenimiento','']]
       .filter(([k]) => !(esTaller && k==='almacen')); // taller no ve Almacén, ni falta que le hace
     bar.innerHTML = modes.map(([k,corto,extra]) =>
       `<button class="mode-btn ${(k==='trabajo'?enTrabajo:state.mode===k)?'active':''}" data-mode="${k}">${corto}<span class="label-extra">${extra}</span></button>`
@@ -3439,6 +3635,7 @@
 
   function renderScannerZone(){
     const zone = $('#scannerZone');
+    if(state.mode === 'mantenimiento'){ zone.innerHTML = ''; return; } // aquí no hace falta escanear nada
     const groupKind = (state.mode==='montaje' || state.mode==='proyecto') ? state.mode : null;
     const currentName = groupKind ? state.current[groupKind] : null;
     const currentGroup = currentName ? findGroup(groupKind, currentName) : null;
@@ -3931,6 +4128,357 @@
 
   let pedidoView = 'chat'; // 'chat' | 'lista' — qué se muestra en Pedido
 
+  const TAREAS_MANTENIMIENTO_COMUNES = [
+    {nombre:'Cambio de aceite y filtro', km:10000, meses:12},
+    {nombre:'Filtro de aire', km:15000, meses:24},
+    {nombre:'Filtro de habitáculo', km:15000, meses:12},
+    {nombre:'Rotación de neumáticos', km:10000, meses:null},
+    {nombre:'Pastillas de freno', km:30000, meses:null},
+    {nombre:'Líquido de frenos', km:null, meses:24},
+    {nombre:'Líquido refrigerante', km:60000, meses:48},
+    {nombre:'Correa de distribución', km:100000, meses:60},
+    {nombre:'Batería', km:null, meses:48},
+    {nombre:'ITV / Inspección técnica', km:null, meses:12},
+  ];
+
+  // redimensiono y comprimo la foto antes de guardarla — una foto de móvil sin tocar
+  // pesa varios MB, y aquí se van a acumular unas cuantas por vehículo
+  function redimensionarImagen(file, maxDim, calidad){
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = e => {
+        const img = new Image();
+        img.onload = () => {
+          let w = img.width, h = img.height;
+          if(w > h && w > maxDim){ h = Math.round(h*maxDim/w); w = maxDim; }
+          else if(h > maxDim){ w = Math.round(w*maxDim/h); h = maxDim; }
+          const canvas = document.createElement('canvas');
+          canvas.width = w; canvas.height = h;
+          canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL('image/jpeg', calidad));
+        };
+        img.onerror = () => reject(new Error('No se pudo leer la imagen'));
+        img.src = e.target.result;
+      };
+      reader.onerror = () => reject(new Error('No se pudo leer el archivo'));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function renderMantenimientoMain(){
+    if(state.mode !== 'mantenimiento') return;
+    const el = $('#mainList');
+
+    if(!state.vehiculos.length){
+      el.innerHTML = `
+        <div class="project-bar">
+          <button class="cam-btn" id="addVehiculoBtn" style="flex:1;">+ Añadir vehículo</button>
+        </div>
+        <div class="empty-state">Todavía no hay ningún vehículo. Añade el primero para empezar a llevar su mantenimiento.</div>
+      `;
+      $('#addVehiculoBtn').addEventListener('click', abrirFormVehiculo);
+      return;
+    }
+
+    const v = vehiculoActual() || state.vehiculos[0];
+    if(v.id !== state.vehiculoActualId){ state.vehiculoActualId = v.id; saveAppState(); }
+    const kmActual = v.kmActual || 0;
+    const tareas = tareasDelVehiculo(v.id).map(t => ({...t, calc: calcularEstadoTarea(t, kmActual)}));
+    tareas.sort((a,b) => a.calc.urgencia - b.calc.urgencia);
+
+    const nAtrasadas = tareas.filter(t=>t.calc.estado==='atrasada').length;
+    const nPronto = tareas.filter(t=>t.calc.estado==='pronto').length;
+    const nOk = tareas.filter(t=>t.calc.estado==='ok').length;
+
+    el.innerHTML = `
+      <div class="project-bar">
+        <select id="vehiculoSelect" style="flex:1;">
+          ${state.vehiculos.map(vv=>`<option value="${vv.id}" ${vv.id===v.id?'selected':''}>${esc(vv.matricula)}${vv.marca||vv.modelo?' — '+esc(vv.marca||'')+' '+esc(vv.modelo||''):''}</option>`).join('')}
+        </select>
+        <button class="cam-btn" id="addVehiculoBtn" style="flex:none; padding:9px 14px; min-height:auto;">+ Nuevo</button>
+      </div>
+      <div class="project-bar" style="margin-top:0;">
+        <label for="kmActualInput" style="font-size:12px; font-weight:700; color:var(--text-faint); white-space:nowrap;">Km actuales:</label>
+        <input type="number" id="kmActualInput" value="${kmActual}" min="0" style="flex:1;">
+        <button class="cam-btn" id="editVehiculoBtn" style="flex:none; padding:9px 14px; min-height:auto;">Editar</button>
+        <button class="btn-return" id="delVehiculoBtn" style="flex:none; padding:9px 14px; min-height:auto;">Eliminar vehículo</button>
+      </div>
+
+      <div class="panel">
+        <p class="panel-title">Resumen</p>
+        <div class="stat-row"><span>Atrasadas</span><span class="num" style="color:var(--danger);">${nAtrasadas}</span></div>
+        <div class="stat-row"><span>Pronto</span><span class="num" style="color:#D89A2A;">${nPronto}</span></div>
+        <div class="stat-row"><span>Al día</span><span class="num" style="color:var(--success);">${nOk}</span></div>
+      </div>
+
+      <div class="ticket" style="margin-top:14px;">
+        <div class="ticket-header"><span class="ticket-title">Mantenimiento — ${esc(v.matricula)}</span></div>
+        <div class="ticket-body">
+          ${tareas.length ? tareas.map(filaTareaMantenimiento).join('') : `<div class="empty-state">Añade la primera tarea de mantenimiento abajo.</div>`}
+        </div>
+      </div>
+      <button class="cam-btn" id="addTareaMantBtn" style="width:100%; margin-top:10px;">+ Añadir tarea de mantenimiento</button>
+
+      <div class="ticket" style="margin-top:14px;">
+        <div class="ticket-header"><span class="ticket-title">Fotos de ${esc(v.matricula)}</span></div>
+        <div class="ticket-body">
+          ${(v.fotos||[]).length ? `
+          <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(90px, 1fr)); gap:8px; padding:12px 14px;">
+            ${(v.fotos||[]).map((f,i) => `
+              <div style="position:relative;">
+                <img src="${f}" style="width:100%; aspect-ratio:1; object-fit:cover; border-radius:6px; border:1px solid var(--border); cursor:pointer;" data-ver-foto="${i}">
+                <button class="btn-return" data-del-foto="${i}" style="position:absolute; top:2px; right:2px; padding:2px 6px; font-size:10px; min-height:auto;">×</button>
+              </div>
+            `).join('')}
+          </div>
+          ` : `<div class="empty-state">Todavía no hay ninguna foto de este vehículo.</div>`}
+          <div style="padding:0 14px 14px;">
+            <input type="file" id="fotoInput" accept="image/*" capture="environment" style="display:none;">
+            <button class="cam-btn" id="addFotoBtn" style="width:100%;">+ Añadir foto</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    $('#vehiculoSelect').addEventListener('change', e=>{
+      state.vehiculoActualId = e.target.value;
+      saveAppState();
+      render();
+    });
+    $('#addVehiculoBtn').addEventListener('click', abrirFormVehiculo);
+    $('#editVehiculoBtn').addEventListener('click', ()=> abrirFormVehiculo(v.id));
+    $('#delVehiculoBtn').addEventListener('click', ()=>{
+      if(!confirm('¿Eliminar "'+v.matricula+'" y todas sus tareas de mantenimiento? No se puede deshacer.')) return;
+      state.vehiculos = state.vehiculos.filter(x => x.id !== v.id);
+      state.tareasMantenimiento = state.tareasMantenimiento.filter(t => t.vehiculoId !== v.id);
+      state.vehiculoActualId = state.vehiculos.length ? state.vehiculos[0].id : null;
+      saveVehiculos(); saveTareasMantenimiento(); saveAppState();
+      render();
+    });
+    $('#kmActualInput').addEventListener('change', e=>{
+      v.kmActual = Math.max(0, parseInt(e.target.value,10)||0);
+      saveVehiculos();
+      render();
+    });
+    $('#addTareaMantBtn').addEventListener('click', ()=> abrirFormTarea());
+    el.querySelectorAll('[data-hecho-tarea-id]').forEach(btn=>{
+      btn.addEventListener('click', ()=> abrirFormMarcarHecho(btn.dataset.hechoTareaId));
+    });
+    el.querySelectorAll('[data-del-tarea-id]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        if(!confirm('¿Eliminar esta tarea de mantenimiento?')) return;
+        state.tareasMantenimiento = state.tareasMantenimiento.filter(t => t.id !== btn.dataset.delTareaId);
+        saveTareasMantenimiento();
+        render();
+      });
+    });
+    el.querySelectorAll('[data-editar-tarea-id]').forEach(btn=>{
+      btn.addEventListener('click', ()=> abrirFormTarea(btn.dataset.editarTareaId));
+    });
+
+    const fotoInput = $('#fotoInput');
+    $('#addFotoBtn').addEventListener('click', ()=> fotoInput.click());
+    fotoInput.addEventListener('change', async ()=>{
+      const file = fotoInput.files[0];
+      if(!file) return;
+      showStatus('Guardando foto…');
+      try{
+        const dataUrl = await redimensionarImagen(file, 1000, 0.6);
+        v.fotos = v.fotos || [];
+        v.fotos.unshift(dataUrl);
+        if(v.fotos.length > 30) v.fotos = v.fotos.slice(0,30); // no crece sin límite
+        saveVehiculos();
+        render();
+      }catch(e){
+        showStatus('No se pudo guardar la foto: '+e.message);
+      }
+      fotoInput.value = '';
+    });
+    el.querySelectorAll('[data-ver-foto]').forEach(img=>{
+      img.addEventListener('click', ()=> window.open(img.src, '_blank'));
+    });
+    el.querySelectorAll('[data-del-foto]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        if(!confirm('¿Eliminar esta foto?')) return;
+        v.fotos.splice(parseInt(btn.dataset.delFoto,10), 1);
+        saveVehiculos();
+        render();
+      });
+    });
+  }
+
+  function filaTareaMantenimiento(t){
+    const c = t.calc;
+    const color = c.estado==='atrasada' ? 'var(--danger)' : c.estado==='pronto' ? '#D89A2A' : 'var(--success)';
+    const texto = c.estado==='atrasada' ? 'Atrasada' : c.estado==='pronto' ? 'Pronto' : 'Al día';
+    const detalles = [];
+    if(t.intervaloKm) detalles.push('cada '+t.intervaloKm.toLocaleString('es-ES')+' km');
+    if(t.intervaloMeses) detalles.push('cada '+t.intervaloMeses+' meses');
+    const ultimo = [];
+    if(t.ultimoKm != null) ultimo.push(t.ultimoKm.toLocaleString('es-ES')+' km');
+    if(t.ultimaFecha) ultimo.push(new Date(t.ultimaFecha+'T00:00:00').toLocaleDateString('es-ES'));
+    const proximo = [];
+    if(c.proximoKm != null) proximo.push(c.proximoKm.toLocaleString('es-ES')+' km');
+    if(c.proximaFecha) proximo.push(new Date(c.proximaFecha+'T00:00:00').toLocaleDateString('es-ES'));
+    return `
+      <div style="display:flex; align-items:center; gap:10px; padding:12px 14px; border-bottom:1px dashed var(--border); border-left:3px solid ${color};">
+        <div style="flex:1; min-width:0; cursor:pointer;" data-editar-tarea-id="${t.id}">
+          <div style="font-weight:700; font-size:13.5px;">${esc(t.nombre)}</div>
+          <div style="font-size:11.5px; color:var(--text-faint); margin-top:2px;">${detalles.join(' · ')||'sin intervalo definido'}${ultimo.length?' · última vez: '+ultimo.join(' · '):''}</div>
+        </div>
+        <div style="text-align:right; flex:none;">
+          <span style="font-size:10.5px; font-weight:700; padding:3px 9px; border-radius:20px; background:color-mix(in srgb, ${color} 16%, transparent); color:${color};">${texto}</span>
+          <div style="font-size:11px; color:var(--text-faint); margin-top:4px; font-family:ui-monospace,monospace;">${proximo.join(' · ')||'—'}</div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:4px; flex:none;">
+          <button class="cam-btn" data-hecho-tarea-id="${t.id}" style="padding:6px 10px; font-size:11px; min-height:auto;">Hecho</button>
+          <button class="btn-return" data-del-tarea-id="${t.id}" style="padding:6px 10px; font-size:11px; min-height:auto;">Eliminar</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function abrirFormVehiculo(idExistente){
+    const existente = idExistente ? state.vehiculos.find(v => v.id === idExistente) : null;
+    const overlay = $('#mantOverlay');
+    const card = $('#mantOverlayCard');
+    card.innerHTML = `
+      <p class="panel-title">${existente ? 'Editar vehículo' : 'Añadir vehículo'}</p>
+      <div class="scanner-row" style="margin-bottom:8px;">
+        <input type="text" id="vMatricula" placeholder="Matrícula" value="${existente?esc(existente.matricula||''):''}" style="flex:1;">
+        <input type="number" id="vKm" placeholder="Km actuales" min="0" value="${existente?(existente.kmActual||0):''}" style="flex:1;">
+      </div>
+      <div class="scanner-row" style="margin-bottom:12px;">
+        <input type="text" id="vMarca" placeholder="Marca" value="${existente?esc(existente.marca||''):''}" style="flex:1;">
+        <input type="text" id="vModelo" placeholder="Modelo" value="${existente?esc(existente.modelo||''):''}" style="flex:1;">
+        <input type="number" id="vAnio" placeholder="Año" value="${existente?esc(existente.anio||''):''}" style="flex:1;">
+      </div>
+      <p style="font-size:11.5px; color:var(--text-faint); margin:0 0 6px 2px;">Mecánico habitual (opcional)</p>
+      <div class="scanner-row" style="margin-bottom:12px;">
+        <input type="text" id="vMecanicoNombre" placeholder="Nombre o taller" value="${existente?esc(existente.mecanicoNombre||''):''}" style="flex:1;">
+        <input type="text" id="vMecanicoContacto" placeholder="Teléfono o email" value="${existente?esc(existente.mecanicoContacto||''):''}" style="flex:1;">
+      </div>
+      <div class="scanner-row">
+        <button class="btn-return" id="vCancelar" style="flex:1;">Cancelar</button>
+        <button class="btn primary" id="vGuardar" style="flex:1;">${existente?'Guardar':'Añadir'}</button>
+      </div>
+    `;
+    overlay.style.display = 'flex';
+    $('#vCancelar').addEventListener('click', ()=> overlay.style.display = 'none');
+    $('#vGuardar').addEventListener('click', ()=>{
+      const matricula = $('#vMatricula').value.trim();
+      if(!matricula){ showStatus('Escribe la matrícula del vehículo.'); return; }
+      const datos = {
+        matricula,
+        marca: $('#vMarca').value.trim(), modelo: $('#vModelo').value.trim(),
+        anio: $('#vAnio').value.trim(),
+        kmActual: Math.max(0, parseInt($('#vKm').value,10)||0),
+        mecanicoNombre: $('#vMecanicoNombre').value.trim(),
+        mecanicoContacto: $('#vMecanicoContacto').value.trim(),
+      };
+      if(existente){
+        Object.assign(existente, datos);
+      }else{
+        const nuevo = {id: uid(), fotos:[], ...datos};
+        state.vehiculos.push(nuevo);
+        state.vehiculoActualId = nuevo.id;
+        saveAppState();
+      }
+      saveVehiculos();
+      overlay.style.display = 'none';
+      render();
+    });
+  }
+
+  function abrirFormTarea(idExistente){
+    const v = vehiculoActual();
+    if(!v) return;
+    const existente = idExistente ? state.tareasMantenimiento.find(t => t.id === idExistente) : null;
+    const overlay = $('#mantOverlay');
+    const card = $('#mantOverlayCard');
+    card.innerHTML = `
+      <p class="panel-title">${existente ? 'Editar tarea' : 'Añadir tarea de mantenimiento'}</p>
+      ${!existente ? `
+      <select id="tPreset" style="width:100%; margin-bottom:8px;">
+        <option value="">— Escribir a mano —</option>
+        ${TAREAS_MANTENIMIENTO_COMUNES.map((p,i)=>`<option value="${i}">${esc(p.nombre)}</option>`).join('')}
+      </select>
+      ` : ''}
+      <input type="text" id="tNombre" placeholder="Nombre de la tarea" value="${existente?esc(existente.nombre):''}" style="width:100%; margin-bottom:8px;">
+      <div class="scanner-row" style="margin-bottom:8px;">
+        <input type="number" id="tKm" placeholder="Cada cuántos km" min="0" value="${existente&&existente.intervaloKm?existente.intervaloKm:''}" style="flex:1;">
+        <input type="number" id="tMeses" placeholder="Cada cuántos meses" min="0" value="${existente&&existente.intervaloMeses?existente.intervaloMeses:''}" style="flex:1;">
+      </div>
+      <p style="font-size:11.5px; color:var(--text-faint); margin:-4px 0 10px;">Rellena uno de los dos, o los dos — avisa con lo que llegue antes.</p>
+      <div class="scanner-row" style="margin-bottom:12px;">
+        <input type="number" id="tUltimoKm" placeholder="Km la última vez" min="0" value="${existente&&existente.ultimoKm!=null?existente.ultimoKm:(v.kmActual||0)}" style="flex:1;">
+        <input type="date" id="tUltimaFecha" value="${existente&&existente.ultimaFecha?existente.ultimaFecha:hoyISO()}" style="flex:1;">
+      </div>
+      <div class="scanner-row">
+        <button class="btn-return" id="tCancelar" style="flex:1;">Cancelar</button>
+        <button class="btn primary" id="tGuardar" style="flex:1;">${existente?'Guardar':'Añadir'}</button>
+      </div>
+    `;
+    overlay.style.display = 'flex';
+    const presetSel = $('#tPreset');
+    if(presetSel){
+      presetSel.addEventListener('change', ()=>{
+        if(presetSel.value === '') return;
+        const p = TAREAS_MANTENIMIENTO_COMUNES[parseInt(presetSel.value,10)];
+        $('#tNombre').value = p.nombre;
+        $('#tKm').value = p.km || '';
+        $('#tMeses').value = p.meses || '';
+      });
+    }
+    $('#tCancelar').addEventListener('click', ()=> overlay.style.display = 'none');
+    $('#tGuardar').addEventListener('click', ()=>{
+      const nombre = $('#tNombre').value.trim();
+      if(!nombre){ showStatus('Escribe el nombre de la tarea.'); return; }
+      const km = parseInt($('#tKm').value,10);
+      const meses = parseInt($('#tMeses').value,10);
+      if(!km && !meses){ showStatus('Indica al menos un intervalo, en km o en meses, para poder avisarte.'); return; }
+      const datos = {
+        nombre, intervaloKm: km||null, intervaloMeses: meses||null,
+        ultimoKm: $('#tUltimoKm').value !== '' ? parseInt($('#tUltimoKm').value,10) : null,
+        ultimaFecha: $('#tUltimaFecha').value || null,
+      };
+      if(existente) Object.assign(existente, datos);
+      else state.tareasMantenimiento.push({id:uid(), vehiculoId:v.id, ...datos});
+      saveTareasMantenimiento();
+      overlay.style.display = 'none';
+      render();
+    });
+  }
+
+  function abrirFormMarcarHecho(tareaId){
+    const t = state.tareasMantenimiento.find(x => x.id === tareaId);
+    const v = vehiculoActual();
+    if(!t || !v) return;
+    const overlay = $('#mantOverlay');
+    const card = $('#mantOverlayCard');
+    card.innerHTML = `
+      <p class="panel-title">Marcar "${esc(t.nombre)}" como hecho</p>
+      <div class="scanner-row" style="margin-bottom:12px;">
+        <input type="number" id="dKm" placeholder="Km en ese momento" min="0" value="${v.kmActual||0}" style="flex:1;">
+        <input type="date" id="dFecha" value="${hoyISO()}" style="flex:1;">
+      </div>
+      <div class="scanner-row">
+        <button class="btn-return" id="dCancelar" style="flex:1;">Cancelar</button>
+        <button class="btn primary" id="dGuardar" style="flex:1;">Guardar</button>
+      </div>
+    `;
+    overlay.style.display = 'flex';
+    $('#dCancelar').addEventListener('click', ()=> overlay.style.display = 'none');
+    $('#dGuardar').addEventListener('click', ()=>{
+      t.ultimoKm = Math.max(0, parseInt($('#dKm').value,10)||0);
+      t.ultimaFecha = $('#dFecha').value || hoyISO();
+      if(t.ultimoKm > (v.kmActual||0)){ v.kmActual = t.ultimoKm; saveVehiculos(); }
+      saveTareasMantenimiento();
+      overlay.style.display = 'none';
+      render();
+    });
+  }
+
   function renderPedidoMain(){
     if(state.mode !== 'pedido') return; // mismo motivo que en renderStockMain — evita pisar otra sección
     const el = $('#mainList');
@@ -4209,9 +4757,47 @@
       `;
     }
 
-    el.innerHTML = selectorHtml + tabs + bodyHtml + pendienteHtml;
+    const documentosHtml = `
+      <div class="ticket" style="margin-top:14px;">
+        <div class="ticket-header"><span class="ticket-title">Documentos escaneados</span></div>
+        <div class="ticket-body">
+          ${(target.documentos||[]).length ? (target.documentos||[]).map(d => `
+            <div style="display:flex; align-items:center; gap:10px; padding:11px 14px; border-bottom:1px dashed var(--border);">
+              <div style="flex:1; min-width:0;">
+                <div style="font-weight:700; font-size:13px;">${esc(d.nombre)}</div>
+                <div style="font-size:11px; color:var(--text-faint); margin-top:2px;">${d.fecha} · ${d.paginas} página(s)</div>
+              </div>
+              <button class="cam-btn" data-ver-doc="${d.id}" style="padding:6px 10px; font-size:11px; min-height:auto;">Ver</button>
+              <button class="btn-return" data-del-doc="${d.id}" style="padding:6px 10px; font-size:11px; min-height:auto;">Eliminar</button>
+            </div>
+          `).join('') : `<div class="empty-state">Todavía no hay ningún documento escaneado para esta orden/proyecto.</div>`}
+          <div style="padding:12px 14px;">
+            <button class="cam-btn" id="escanearDocBtn" style="width:100%;">Escanear documento</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    el.innerHTML = selectorHtml + tabs + bodyHtml + pendienteHtml + documentosHtml;
     wireTrabajoSelector(el);
     scrollChatAlFinal(el);
+
+    const escanearDocBtn = $('#escanearDocBtn');
+    if(escanearDocBtn) escanearDocBtn.addEventListener('click', abrirEscanerDocumento);
+    el.querySelectorAll('[data-ver-doc]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const doc = (target.documentos||[]).find(d => d.id === btn.dataset.verDoc);
+        if(doc) window.open(doc.dataUrl, '_blank');
+      });
+    });
+    el.querySelectorAll('[data-del-doc]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        if(!confirm('¿Eliminar este documento escaneado?')) return;
+        target.documentos = (target.documentos||[]).filter(d => d.id !== btn.dataset.delDoc);
+        persistCurrentTarget();
+        render();
+      });
+    });
 
     el.querySelectorAll('[data-pendiente-del]').forEach(btn=>{
       btn.addEventListener('click', ()=>{
@@ -4517,6 +5103,38 @@
       `;
       $('#sendPedidoBtn').addEventListener('click', sendPedidoEmail);
       $('#clearPedidoBtn').addEventListener('click', clearPedido);
+      return;
+    }
+
+    if(state.mode === 'mantenimiento'){
+      const v = vehiculoActual();
+      if(!v){ el.innerHTML = ''; return; }
+      const proximas = tareasDelVehiculo(v.id)
+        .map(t => ({...t, calc: calcularEstadoTarea(t, v.kmActual||0)}))
+        .filter(t => t.calc.estado !== 'ok')
+        .sort((a,b) => a.calc.urgencia - b.calc.urgencia)
+        .slice(0,5);
+      el.innerHTML = `
+        <div class="panel">
+          <p class="panel-title">${esc(v.matricula)}</p>
+          <div class="stat-row"><span>Marca / modelo</span><span class="num" style="font-size:12px;">${esc(v.marca||'—')} ${esc(v.modelo||'')}</span></div>
+          <div class="stat-row"><span>Año</span><span class="num">${esc(v.anio||'—')}</span></div>
+          <div class="stat-row"><span>Km actuales</span><span class="num">${(v.kmActual||0).toLocaleString('es-ES')}</span></div>
+        </div>
+        ${(v.mecanicoNombre || v.mecanicoContacto) ? `
+        <div class="panel">
+          <p class="panel-title">Mecánico habitual</p>
+          ${v.mecanicoNombre ? `<div class="stat-row"><span>Nombre</span><span class="num" style="font-size:12px;">${esc(v.mecanicoNombre)}</span></div>` : ''}
+          ${v.mecanicoContacto ? `<div class="stat-row"><span>Contacto</span><span class="num" style="font-size:12px;">${esc(v.mecanicoContacto)}</span></div>` : ''}
+        </div>
+        ` : ''}
+        ${proximas.length ? `
+        <div class="panel">
+          <p class="panel-title">Próximas revisiones</p>
+          ${proximas.map(t => `<div class="stat-row"><span>${esc(t.nombre)}</span><span class="num" style="color:${t.calc.estado==='atrasada'?'var(--danger)':'#D89A2A'};">${t.calc.estado==='atrasada'?'Atrasada':'Pronto'}</span></div>`).join('')}
+        </div>
+        ` : ''}
+      `;
       return;
     }
 
