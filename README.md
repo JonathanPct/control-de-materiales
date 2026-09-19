@@ -13,25 +13,25 @@ El objetivo era tener una herramienta de almacén que no necesitara servidor pro
 - **pdf.js** para extraer texto de PDFs al crear órdenes desde archivo (análisis heurístico línea a línea).
 - **JsBarcode** para generar e imprimir etiquetas de código de barras.
 - **jsPDF** para juntar las páginas escaneadas de un documento en un único PDF.
-- **Firebase (Firestore + Authentication)**, opcional, para guardado compartido en la nube con login — ver "Migrar a otro hosting o base de datos" si en algún momento se cambia de proveedor.
+- **Supabase (Postgres + Authentication + tiempo real)**, opcional, para guardado compartido en la nube con login — ver "Migrar a otro hosting o base de datos" si en algún momento se cambia de proveedor.
 - **EmailJS**, opcional, para mandar avisos por correo sin backend propio.
 - **`BarcodeDetector`** (API nativa del navegador) para escanear con la cámara del móvil.
 
 **Modelo de datos:** el estado vive en un único objeto JavaScript. El catálogo de materiales usa un `id` interno único por referencia — el código de barras (`code`) **no tiene que ser único**, así que un mismo código puede tener varias referencias asociadas, y la app pregunta cuál es al escanear si hay más de una coincidencia.
 
-**Guardado, en cadena de prioridad:** Firestore (si está configurado, con transacciones para que dos dispositivos no se pisen un cambio, y tiempo real) → almacenamiento propio de la página → `localStorage` del navegador. La app nunca deja de guardar datos, solo cambia dónde.
+**Guardado, en cadena de prioridad:** Supabase (si está configurado, con ajustes de stock a prueba de que dos dispositivos no se pisen un cambio, y tiempo real) → almacenamiento propio de la página → `localStorage` del navegador. La app nunca deja de guardar datos, solo cambia dónde.
 
 **Decisiones de diseño relevantes:**
 - Todos los datos dinámicos se escapan antes de pintarlos en HTML, porque pueden venir de un escáner o de un humano y contener caracteres que rompan la página.
 - Al subir un archivo para crear una orden, la app enseña primero un resumen línea a línea y pide confirmación antes de tocar el stock.
 - El histórico de movimientos y de firmas se archiva resumido en vez de borrarse sin más al superar un límite.
-- Las funciones opcionales (cámara, Firebase, EmailJS, PDF) se degradan sin romper el resto de la app si no están disponibles o configuradas.
+- Las funciones opcionales (cámara, Supabase, EmailJS, PDF) se degradan sin romper el resto de la app si no están disponibles o configuradas.
 
 **Limitaciones conocidas:**
 - Al ser una página estática, los avisos programados (stock bajo, bobinas por vencer) solo se comprueban cuando alguien tiene la app abierta — no hay tarea en segundo plano que se ejecute sola. El correo de pedido nuevo sí funciona siempre que se guarde una solicitud, esté quien esté conectado.
 - La lectura de PDF es heurística (busca patrones de texto), no una lectura de tablas real.
 - El pitido de aviso depende de que el navegador permita reproducir audio sin una interacción previa del usuario en esa pestaña — algunos navegadores (sobre todo Safari en iPhone) son más estrictos que otros. Si esto falla en algún dispositivo puntual, la notificación del sistema (si se le dio permiso) sigue llegando igual, ya que no depende de esta restricción.
-- Las firmas de entrega, al ser una imagen, solo se guardan completas las 40 más recientes por orden/proyecto (límite de tamaño por documento en Firestore); las más antiguas se archivan como resumen (quién, cuándo, cuántas líneas) sin la imagen.
+- Las firmas de entrega, al ser una imagen, solo se guardan completas las 40 más recientes por orden/proyecto (para no hacer crecer demasiado esa fila); las más antiguas se archivan como resumen (quién, cuándo, cuántas líneas) sin la imagen.
 - El logo de la empresa no sale como imagen en los Excel exportados — la librería gratuita usada para generarlos no lo permite, solo el texto "TECNOMAT · Control de materiales".
 
 ## 1. Publicarla en GitHub Pages
@@ -52,75 +52,37 @@ Si subes `index.html` nuevo pero te olvidas de tocar `sw.js`, el navegador no se
 
 ## 2. Cómo se guardan los datos
 
-- **Con Firebase configurado**: guardado compartido en la nube, con tiempo real entre dispositivos.
-- **Sin Firebase configurado**: usa `localStorage`, la memoria propia del navegador — sigue guardándose todo solo, pero queda en ese navegador y dispositivo concretos, sin sincronizarse con otros.
+- **Con Supabase configurado**: guardado compartido en la nube, con tiempo real entre dispositivos.
+- **Sin Supabase configurado**: usa `localStorage`, la memoria propia del navegador — sigue guardándose todo solo, pero queda en ese navegador y dispositivo concretos, sin sincronizarse con otros.
 
 **Recomendación:** usa el botón **"Descargar todo"** (dentro de Almacén) de vez en cuando para bajarte una copia de seguridad real en un archivo `.json`, y **"Restaurar"** si necesitas pasar esos datos a otro dispositivo o recuperarlos tras borrar el navegador.
 
-## 3. Backend real (Firebase)
+## 3. Backend real (Supabase)
 
-GitHub Pages solo sirve archivos estáticos — no puede ejecutar un servidor ni una base de datos. Por eso el `index.html` se conecta, si se quiere, a **Firebase Firestore** (base de datos gratuita de Google): la página sigue alojada 100% en GitHub Pages, pero los datos se guardan en esa base externa y todos los dispositivos comparten el mismo stock en tiempo real.
+GitHub Pages solo sirve archivos estáticos — no puede ejecutar un servidor ni una base de datos. Por eso el `index.html` se conecta, si se quiere, a **Supabase** (base de datos Postgres gratuita, con tiempo real y login incluidos): la página sigue alojada 100% en GitHub Pages, pero los datos se guardan en esa base externa y todos los dispositivos comparten el mismo stock en tiempo real. Es también la base que permite que **otra app conectada al mismo proyecto** dé de alta órdenes de trabajo directamente, sin pasar por Tecnomat.
 
-El `index.html` de esta carpeta ya tiene la configuración real de Firebase metida (proyecto `almacenamiento-datos-40e38`). Los pasos de abajo solo son referencia por si algún día hace falta crear otra instancia en un proyecto de Firebase distinto.
+### Configuración desde cero
 
-<details>
-<summary>Ver pasos de configuración desde cero</summary>
-
-1. Ve a [console.firebase.google.com](https://console.firebase.google.com) y entra con una cuenta de Google.
-2. **Añadir proyecto** → ponle un nombre (Google Analytics no hace falta) → **Crear proyecto**.
-3. Menú lateral → **Compilación → Firestore Database** → **Crear base de datos**. Elige la ubicación más cercana y **Modo de producción**.
-4. **Configuración del proyecto** (⚙) → pestaña **General** → "Tus apps" → icono web `</>`.
-5. Ponle un apodo a la app → **Registrar app**. Firebase muestra un bloque `firebaseConfig`.
-6. Ese bloque se pega en `index.html`, dentro del adaptador de backend cerca del principio del `<script>`, sustituyendo los valores de ejemplo.
-
-</details>
+1. Ve a [supabase.com](https://supabase.com) y crea una cuenta (gratis).
+2. **New project** → nombre, contraseña de la base de datos (guárdala), región más cercana. Espera 1-2 minutos.
+3. Menú lateral → **SQL Editor** → **New query** → pega el contenido de `supabase_setup.sql` (incluido en esta carpeta) → **Run**. Esto crea las tablas, la función de ajuste de stock, y activa el tiempo real.
+4. Menú lateral → **Project Settings** (⚙) → **API** → copia la **Project URL** y la clave **anon public**.
+5. En `index.html`, dentro del adaptador de backend cerca del principio del `<script>`, sustituye `TU_SUPABASE_URL` y `TU_SUPABASE_ANON_KEY` por esos dos valores.
+6. **Authentication → Users → Add user** para crear las cuentas de acceso (por ejemplo, `taller@tecnomat.es` y la de Almacén).
 
 ### Nota de seguridad
 
-Por defecto, en modo de prueba, cualquiera que conozca la configuración de Firebase podría leer o escribir en la base de datos. Para cerrarlo:
+El SQL de configuración ya deja las tablas cerradas a cualquiera que no haya iniciado sesión (Row Level Security activada, con una política que exige `auth.role() = 'authenticated'`). Con eso basta para que nadie sin cuenta pueda leer ni escribir nada, aunque conozca la URL y la clave pública del proyecto — la clave `anon` está pensada para ir en el código del cliente, no es un secreto por sí sola.
 
-- En Firestore Database → pestaña **Reglas**:
-  ```
-  rules_version = '2';
-  service cloud.firestore {
-    match /databases/{database}/documents {
-      match /tecnomat_materiales/{doc} {
-        allow read, write: if true; // ábrelo solo si confías en quién tiene el enlace
-      }
-    }
-  }
-  ```
-- Para exigir usuario y contraseña, la app ya incluye pantalla de login con Firebase Authentication — solo hace falta crear los usuarios (Authentication → Users) y ajustar las reglas para pedir `request.auth != null`.
+**Restricción real para Taller** (la de la interfaz, ver sección 5, es solo visual) — para impedir de verdad que esa cuenta escriba en el catálogo o los movimientos, se puede añadir una política más estricta sobre esas dos claves en `tecnomat_kv`, comprobando el email de quien ha iniciado sesión (`auth.jwt() ->> 'email'`) en vez de solo si hay sesión.
 
-**Restringir la clave de API por dominio** (recomendado, en Google Cloud Console, no en el código):
-1. [console.cloud.google.com](https://console.cloud.google.com), con el proyecto correcto seleccionado arriba.
-2. Menú ☰ → **APIs y servicios → Credenciales** → clic en la clave (empieza por `AIzaSy...`).
-3. **Restricciones de aplicaciones** → **Sitios web** → añade `tu-usuario.github.io/*`. Guarda.
+### La otra app conectada al mismo proyecto
 
-Con esto, aunque alguien copie la `apiKey` del código fuente, no puede usarla desde ningún otro sitio.
+Si otra app también inserta filas en `ordenes_trabajo` (y sus materiales en `orden_materiales`), Tecnomat las detecta solo, en tiempo real, y crea la orden/proyecto correspondiente — sin tener que darla de alta a mano. Ver la sección "Trabajo" más abajo para el detalle de qué pasa exactamente al recibir una.
 
-**Restricción real para Taller** (la de la interfaz, ver sección 5, es solo visual): en Firestore Database → Reglas:
-```
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /tecnomat_materiales/catalog {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && request.auth.token.email != 'taller@tecnomat.es';
-    }
-    match /tecnomat_materiales/movements {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && request.auth.token.email != 'taller@tecnomat.es';
-    }
-    match /tecnomat_materiales/{docId} {
-      allow read, write: if request.auth != null && docId != 'catalog' && docId != 'movements';
-    }
-  }
-}
-```
-Taller sigue pudiendo leer el stock (lo necesita para comprobar cantidades), pero Firestore rechaza cualquier escritura sobre `catalog` o `movements` desde esa cuenta, funcione o no la interfaz.
+La tabla `materiales_rapidos` (para la "Lista rápida" de Trabajo, ver esa sección) no la llena ninguna app — se edita a mano directamente en Supabase (Table Editor → `materiales_rapidos` → Insert row), con `codigo` (opcional, para que enlace con un artículo real del stock) y `nombre`.
 
-Si no se rellena `firebaseConfig` (se deja con los valores de ejemplo), la app sigue funcionando con guardado local, sin romper nada.
+Si no se rellenan `supabaseUrl`/`supabaseAnonKey` (se dejan con los valores de ejemplo), la app sigue funcionando con guardado local, sin romper nada.
 
 ## 4. Avisos y notificaciones
 
@@ -129,7 +91,7 @@ Si no se rellena `firebaseConfig` (se deja con los valores de ejemplo), la app s
 2. **Email Services → Add New Service**, conectar una cuenta de correo. Apuntar el **Service ID**.
 3. **Email Templates → Create New Template**, con las variables `{{subject}}`, `{{message}}`, `{{to_email}}` en el cuerpo. Apuntar el **Template ID**.
 4. **Account → General** → copiar la **Public Key**.
-5. En `index.html`, bloque `emailjsConfig` (cerca de `firebaseConfig`), sustituir las tres claves.
+5. En `index.html`, bloque `emailjsConfig` (cerca de las claves de Supabase), sustituir las tres claves.
 6. Dentro de la app, Almacén → panel "Avisos", poner el email de destino y guardar.
 
 Sin `emailjsConfig` configurado, los avisos siguen apareciendo como banner dentro de la app, solo que sin correo.
@@ -140,13 +102,13 @@ Sin `emailjsConfig` configurado, los avisos siguen apareciendo como banner dentr
 - **Sin conexión**: banner en rojo si se corta el internet a media faena, avisando de que los cambios se siguen guardando en el dispositivo pero no se sincronizan hasta que vuelva. Avisa también al recuperarse.
 - **Sonido al escanear**: pitido corto al confirmar un escaneo con éxito (distinto del de "pedido nuevo"), desactivable en Almacén → Avisos.
 
-Todo lo anterior (banner, sonido, notificación del sistema) solo funciona con la app abierta en ese momento, aunque sea en segundo plano si está instalada — para que funcione con la app completamente cerrada haría falta notificaciones push de verdad (Firebase Cloud Messaging), una pieza bastante más grande de montar. El correo es el único de los avisos que llega siempre, esté la app abierta o no.
+Todo lo anterior (banner, sonido, notificación del sistema) solo funciona con la app abierta en ese momento, aunque sea en segundo plano si está instalada — para que funcione con la app completamente cerrada haría falta notificaciones push de verdad, una pieza bastante más grande de montar. El correo es el único de los avisos que llega siempre, esté la app abierta o no.
 
 ## 5. Roles: Almacén y Taller
 
 Quien entra con la cuenta **`taller@tecnomat.es`** no ve la pestaña de Almacén, ni "Finalizar"/"Eliminar" en una orden, ni el botón "Asociar" en el chat — solo puede trabajar desde Trabajo y Pedido. Cualquier otra cuenta ve todo.
 
-**Esto es una restricción de interfaz**, no de seguridad real — oculta botones y redirige, pero no impide técnicamente que alguien con conocimientos edite datos saltándose la pantalla. La restricción real (a nivel de base de datos) se configura en las reglas de Firestore, ver sección 3.
+**Esto es una restricción de interfaz**, no de seguridad real — oculta botones y redirige, pero no impide técnicamente que alguien con conocimientos edite datos saltándose la pantalla. La restricción real (a nivel de base de datos) se configura con Row Level Security en Supabase, ver sección 3.
 
 ## 6. Trabajo (Montaje/Venta y Proyecto) y su chat
 
@@ -158,6 +120,8 @@ Montaje/Venta y Proyecto viven bajo una sola pestaña, **Trabajo** — al crear 
 - **Solo Almacén** ve el botón **"Asociar"** en esas líneas, para enlazarlas con una referencia real (con el lector físico USB/Bluetooth, la cámara del móvil, o escribiéndolo a mano — un campo de texto normal acepta las tres formas) — y si esa referencia no existe todavía, se puede dar de alta ahí mismo, con 0 unidades.
 - El chat tiene un alto fijo con su propio scroll, y se desplaza solo hasta el último mensaje.
 - La tabla de siempre (**Hoja de pedido**, y **Servido**/**Devuelto** para Almacén) sigue existiendo en su propia pestaña, para imprimir o repasar de un vistazo — el chat no la sustituye, conviven las dos.
+- El panel lateral también empieza compacto — solo "Resumen" a la vista, el resto (exportar, crear desde archivo, buscar en stock, histórico, entregas firmadas) detrás de "Más opciones".
+- **Lista rápida**: justo encima de la caja de escribir del chat, si hay materiales frecuentes configurados, aparece una lista pequeña con casilla y cantidad para cada uno — misma lista para todas las órdenes y proyectos. Al marcar los que hagan falta y pulsar "Añadir seleccionados", se añaden de golpe a la solicitud pendiente (con su referencia real si el código coincide con algo del stock, o como línea "sin referencia todavía" si no), y queda anotado en el chat. Esta lista se mantiene aparte, directamente en Supabase (tabla `materiales_rapidos`), y se actualiza sola en cualquier dispositivo en cuanto cambia.
 
 **¿Quién pide el material?** No es un campo fijo en pantalla — al crear una orden, una ventana lo pregunta y obliga a rellenarlo. Cada tanda de material (cada vez que se firma una entrega, la orden queda lista para una tanda nueva) puede ser pedida por alguien distinto: si hace falta, se vuelve a preguntar con una ventana en el momento de escanear o escribir, sin bloquear ni esconder el chat mientras tanto.
 
@@ -172,11 +136,19 @@ Cada línea de la Hoja de pedido tiene además dos campos editables: **"Escandal
 
 Una orden o proyecto **no se cierra sola** al entregar material — sigue activa y se puede seguir añadiendo hasta que alguien de Almacén pulse "Finalizar" a propósito.
 
+**Órdenes creadas por otra app**: si otra app conectada al mismo proyecto de Supabase inserta una fila en `ordenes_trabajo` (con sus materiales en `orden_materiales`), Tecnomat la detecta en tiempo real y hace todo esto sola, sin intervención:
+- Crea la orden o proyecto con el nombre, tipo e Interno/Externo que traiga.
+- Busca cada material en el stock — si lo encuentra, lo añade a la solicitud pendiente con su referencia real; si no, lo deja como línea "sin referencia todavía" (con el botón "Asociar" para Almacén, igual que el resto).
+- Dice quién lo pidió, y lo deja anotado en el chat de esa orden.
+- Avisa a Almacén igual que con cualquier pedido nuevo (correo, banner, sonido).
+
+Si Tecnomat todavía no está configurado con Supabase (ver sección 3), esta parte simplemente no ocurre y las órdenes se siguen creando a mano como siempre.
+
 ## 7. Pedido
 
 Sirve para pedir material que falta en el almacén (por ejemplo, para reponer stock desde un proveedor) — no lleva firma, es un listado que se manda por correo. Tiene el mismo chat que Trabajo (con su pestaña "Chat" y "Lista"), pero aquí **se pregunta quién hace el pedido en cada escaneo o mensaje**, no solo una vez — pensado para un dispositivo que se comparte entre varias personas. Cada línea del chat muestra quién pidió esa unidad en concreto.
 
-## 7b. Mantenimiento
+## 8. Mantenimiento
 
 Pestaña para llevar el mantenimiento de los vehículos de la empresa (furgonetas, coches de reparto...), independiente del resto de secciones — no descuenta stock ni tiene escáner, es solo un seguimiento de fechas y kilometraje.
 
@@ -188,11 +160,13 @@ Pestaña para llevar el mantenimiento de los vehículos de la empresa (furgoneta
 - **"Hecho"** actualiza el kilometraje y la fecha de esa tarea con un par de datos, y recalcula sola la próxima vez.
 - **Los avisos de mantenimiento pendiente entran en el mismo sistema de avisos que ya usa el resto de la app**: aparecen en el banner de arriba (junto a los de stock bajo, si los hay) y en el correo diario, sin tener que entrar a mirar la pestaña a propósito.
 - No tiene buscador de stock ni escáner — esta sección no descuenta ni consulta material.
-- Los datos se guardan igual que el resto de la app — en la nube si Firebase está configurado, compartidos entre todos los dispositivos con la sesión iniciada.
+- Los datos se guardan igual que el resto de la app — en la nube si Supabase está configurado, compartidos entre todos los dispositivos con la sesión iniciada.
 
-## 8. Almacén
+## 9. Almacén
 
-- **Editar**: un único botón agrupa artículo, referencia, ubicación, categoría, coste y características en un solo formulario, en vez de un botón por dato. Aparte quedan **Cambiar cantidad**, **Etiqueta** (imprime código de barras), **+ Otra referencia** y **Eliminar**, que son acciones distintas de solo cambiar un dato.
+- **Panel lateral compacto**: por defecto solo se ven "Resumen" y "Últimos movimientos" — el resto (Exportar/Importar, Sobrescribir todo el stock, Copia de seguridad, Avisos, Ubicaciones, Histórico general, Actividad) se esconde detrás de un botón "Más opciones", para no abrumar con paneles que se usan poco.
+- **Materiales sincronizados desde A3**: si otra app conectada al mismo proyecto de Supabase sincroniza el catálogo de artículos de A3 (código, descripción, precio de venta, stock según A3), Tecnomat los recibe solo, en tiempo real. Si el código ya existe en el stock, se actualiza la descripción sin tocar la cantidad real (esa la sigue llevando Tecnomat, sumando y restando por escaneo); si es un código nuevo, se da de alta con 0 unidades, a la espera de que entre stock de verdad. El número de stock que trae A3 se guarda aparte, solo de referencia — nunca sustituye a la cantidad real de Tecnomat.
+- **Editar**: un único botón agrupa artículo, referencia, ubicación, categoría, coste y características en un solo formulario. Dentro de ese mismo formulario están también **Etiqueta**, **+ Otra referencia** y **Eliminar** — así cada fila de la lista solo muestra dos botones ("Editar" y "Cambiar cantidad"), en vez de cinco, que en una lista de decenas de artículos se nota mucho.
 - **Filtros**: por categoría, solo stock bajo (0) o solo sin ubicar, combinables con la búsqueda de texto.
 - **Ubicaciones**: panel para mantener una lista (añadir/quitar) que autocompleta al escribir la ubicación de un material — sigue siendo texto libre, esto solo evita erratas.
 - **Valorización**: columna "Coste" reconocida al importar un Excel, o rellenable a mano por artículo. El resumen de Almacén muestra el valor total del inventario.
@@ -202,7 +176,7 @@ Pestaña para llevar el mantenimiento de los vehículos de la empresa (furgoneta
 - **Colores pensados para daltonismo**: ningún dato depende solo del color (siempre hay texto o número también). Pedido usa magenta y Stock bajo/OK usan rosa/verde azulado en vez de rojo/verde puros, para distinguirse bien bajo daltonismo rojo-verde.
 - **Tour inicial y botón "Ayuda"**: repaso corto de la app que aparece solo la primera vez, y se puede volver a abrir cuando se quiera.
 
-## 9. Crear una orden/proyecto subiendo un archivo (Excel, CSV o PDF)
+## 10. Crear una orden/proyecto subiendo un archivo (Excel, CSV o PDF)
 
 Dentro de Trabajo, con una orden seleccionada, hay un botón para subir un archivo. Busca cada línea en el stock (por código o referencia) y la añade a la solicitud pendiente — no descuenta stock directamente, eso solo pasa al preparar la recogida y firmar.
 
@@ -211,7 +185,7 @@ Dentro de Trabajo, con una orden seleccionada, hay un botón para subir un archi
 
 Si una línea no coincide con nada del stock, se da de alta automáticamente como referencia "plantilla" (sin stock real) para completarla más tarde. Antes de aplicar el archivo, la app enseña un resumen línea a línea y pide confirmar.
 
-## 9b. Escanear un documento y guardarlo enlazado a su orden
+## 11. Escanear un documento y guardarlo enlazado a su orden
 
 Dentro de Trabajo, cada orden/proyecto tiene su propio panel de "Documentos escaneados" — útil para digitalizar un listado de material en papel, un albarán, o cualquier papel que llegue y haya que guardar junto a esa orden en concreto.
 
@@ -220,7 +194,7 @@ Dentro de Trabajo, cada orden/proyecto tiene su propio panel de "Documentos esca
 - Desde el propio panel se puede **"Ver"** el PDF en una pestaña nueva, o **"Eliminar"** el documento.
 - Se guardan hasta 20 documentos por orden/proyecto; a partir de ahí, los más antiguos se van sustituyendo.
 
-## 10. Instalar la app en el móvil (PWA)
+## 12. Instalar la app en el móvil (PWA)
 
 Gracias a `manifest.json`, `sw.js` y los iconos (súbelos todos junto al `index.html`):
 - **Android (Chrome)**: aviso de "Añadir a pantalla de inicio", o menú ⋮ → "Instalar app".
@@ -232,9 +206,9 @@ Cuando se suben cambios nuevos, aparece un banner — *"Hay una versión nueva d
 
 ## Migrar a otro hosting o base de datos
 
-Todo lo que depende de Firebase vive dentro de un único objeto, `backend`, cerca del principio del `<script>` — el resto de la app nunca menciona Firebase, solo llama a `backend.get/set/delete/watch` y a `backend.auth.*`.
+Todo lo que depende de Supabase vive dentro de un único objeto, `backend`, cerca del principio del `<script>` — el resto de la app nunca menciona Supabase directamente fuera de ese bloque, solo llama a `backend.get/set/delete/watch` y a `backend.auth.*`.
 
-- **El hosting** ya es independiente de Firebase — es un único archivo HTML, funciona en GitHub Pages, Netlify, Vercel, un servidor propio, o cualquier sitio que sirva archivos estáticos, sin cambiar nada.
+- **El hosting** ya es independiente del backend — es un único archivo HTML, funciona en GitHub Pages, Netlify, Vercel, un servidor propio, o cualquier sitio que sirva archivos estáticos, sin cambiar nada.
 - **La base de datos** es lo que está concentrado en el objeto `backend`. Para migrar de verdad, hay que escribir un objeto nuevo con esta misma forma y sustituir el `backend = {...}` actual:
 
 ```js
@@ -258,5 +232,14 @@ backend = {
 ```
 
 Si el proyecto nuevo no necesita usuarios con contraseña, `backend.auth` se puede simplificar mucho — lo único que usa el resto de la app es saber el email de quien está dentro y si puede cerrar sesión.
+
+Si se quiere conservar la detección automática de órdenes de trabajo creadas por otra app (ver sección 3), el backend nuevo necesita además:
+```js
+  watchOrdenesTrabajo(applyFn){ /* se suscribe a las órdenes nuevas y llama a
+    applyFn(orden) por cada una; sin esto, las órdenes hay que seguir creándolas
+    a mano dentro de Tecnomat, el resto de la app sigue funcionando igual */ },
+  async getMaterialesDeOrden(ordenId){ /* devuelve la lista de materiales de esa
+    orden, para poder rellenar la solicitud pendiente al recibirla */ }
+```
 
 Todo lo demás — catálogo, movimientos, chat, órdenes, Pedido, Hoja de pedido, diseño, avisos — llama siempre a `safeGet`/`safeSet`/`safeDelete`/`watchKey`/`getUserRole`/`currentUserEmail`, que reparten el trabajo entre `backend` y los otros dos niveles de reserva. Cambiar de base de datos no debería tocar ni una línea fuera de este bloque.

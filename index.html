@@ -196,6 +196,7 @@
     padding:12px 8px;
     border-radius:0;
     clip-path:polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
+    transition:background .15s, color .15s;
     cursor:pointer;
     white-space:nowrap;
     overflow:hidden;
@@ -248,6 +249,7 @@
     padding:8px 12px;
     border-radius:10px 10px 10px 2px;
     font-size:13px;
+    animation:tecnomat-fade-in .18s ease-out;
   }
   .chat-bubble.chat-bubble-accent{
     align-self:flex-end;
@@ -358,6 +360,8 @@
   .cols{display:flex; gap:14px; align-items:flex-start;}
   .col-main{flex:1.6; min-width:0;}
   .col-side{flex:1; min-width:240px;}
+  .cols-sin-lateral .col-side{display:none;}
+  .cols-sin-lateral .col-main{flex:1; max-width:640px; margin:0 auto;}
 
   /* Ticket feed */
   .ticket{
@@ -369,6 +373,7 @@
     overflow:hidden;
     box-shadow:0 4px 16px rgba(0,0,0,0.3);
     transition:border-color .2s;
+    animation:tecnomat-fade-in .18s ease-out;
   }
   .ticket-header{
     display:flex;
@@ -495,6 +500,7 @@
   }
 
   /* Side panel */
+  @keyframes tecnomat-fade-in{ from{opacity:0; transform:translateY(4px);} to{opacity:1; transform:translateY(0);} }
   .panel{
     background:var(--bg-panel);
     border:1px solid var(--border);
@@ -503,6 +509,7 @@
     padding:14px;
     margin-bottom:14px;
     box-shadow:0 4px 12px rgba(0,0,0,0.25);
+    animation:tecnomat-fade-in .18s ease-out;
   }
 
   /* Stock view */
@@ -607,7 +614,9 @@
     clip-path:polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
     cursor:pointer;
     margin-bottom:8px;
+    transition:background .15s, filter .15s, transform .08s;
   }
+  .btn:active{transform:translateY(1px);}
   .btn:hover{background:var(--bg-raised-2);}
   .btn.primary{background:var(--accent); color:#181A1F; border-color:var(--accent); font-weight:700;}
   .btn.primary:hover{filter:brightness(1.06);}
@@ -939,9 +948,7 @@
   </div>
 </div>
 
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" defer></script>
@@ -949,71 +956,109 @@
 (function(){
 
   // ============================================================
-  // ADAPTADOR DE BACKEND — todo lo que depende de Firebase vive
+  // ADAPTADOR DE BACKEND — todo lo que depende de Supabase vive
   // aquí dentro, y solo aquí. Para migrar a otro hosting o base de
   // datos, esto es lo ÚNICO que hace falta reescribir: el resto de
   // la app llama siempre a "backend.get/set/delete/watch" y a
-  // "backend.auth.*", nunca a Firebase directamente. Ver el README,
+  // "backend.auth.*", nunca a Supabase directamente. Ver el README,
   // sección "Migrar a otro backend", para la lista completa de
   // métodos que un backend nuevo tiene que implementar.
+  //
+  // Rellena estas dos líneas con los datos de tu proyecto (Project
+  // Settings → API en el panel de Supabase) antes de publicar la app:
+  const supabaseUrl = 'TU_SUPABASE_URL';       // ej: https://xxxxxxxx.supabase.co
+  const supabaseAnonKey = 'TU_SUPABASE_ANON_KEY';
+  const KV_TABLE = 'tecnomat_kv';
   // ============================================================
-  const firebaseConfig = {
-    apiKey: "AIzaSyDIsRvCzSJeQ0ftK9DhMl8SAVPBlx9IKEc",
-    authDomain: "almacenamiento-datos-40e38.firebaseapp.com",
-    projectId: "almacenamiento-datos-40e38",
-    storageBucket: "almacenamiento-datos-40e38.firebasestorage.app",
-    messagingSenderId: "901796174695",
-    appId: "1:901796174695:web:767991d98b3383c186edc2"
-  };
-  const FIRESTORE_COLLECTION = 'tecnomat_materiales';
 
-  let backend = null; // queda null si Firebase no está configurado o no carga — la app sigue funcionando en local
+  let backend = null; // queda null si Supabase no está configurado o no carga — la app sigue funcionando en local
+  let sbCurrentUserEmail = ''; // se actualiza solo al iniciar/cerrar sesión, para leerlo al momento sin esperar una promesa
   try{
-    if(firebaseConfig.apiKey && firebaseConfig.apiKey !== 'TU_API_KEY' && typeof firebase !== 'undefined'){
-      firebase.initializeApp(firebaseConfig);
-      const db = firebase.firestore();
-      const fbAuth = firebase.auth();
+    if(supabaseUrl && supabaseUrl !== 'TU_SUPABASE_URL' && typeof window.supabase !== 'undefined'){
+      const sb = window.supabase.createClient(supabaseUrl, supabaseAnonKey);
       backend = {
         async get(key){
-          const doc = await db.collection(FIRESTORE_COLLECTION).doc(key).get();
-          return doc.exists ? doc.data().value : null;
+          const { data, error } = await sb.from(KV_TABLE).select('value').eq('key', key).maybeSingle();
+          if(error) throw error;
+          return data ? data.value : null;
         },
         async set(key, value){
-          await db.collection(FIRESTORE_COLLECTION).doc(key).set({
-            value, updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-          });
+          const { error } = await sb.from(KV_TABLE).upsert({ key, value, updated_at: new Date().toISOString() });
+          if(error) throw error;
           return {key, value};
         },
         async delete(key){
-          await db.collection(FIRESTORE_COLLECTION).doc(key).delete();
+          const { error } = await sb.from(KV_TABLE).delete().eq('key', key);
+          if(error) throw error;
         },
         // se suscribe a los cambios de una clave en tiempo real; devuelve la función
         // para darse de baja cuando ya no haga falta escuchar más
         watch(key, applyFn){
-          return db.collection(FIRESTORE_COLLECTION).doc(key).onSnapshot(doc => {
-            if(!doc.exists) return;
-            applyFn(doc.data().value);
-          }, () => {});
+          const canal = sb.channel('kv-'+key)
+            .on('postgres_changes', {event:'*', schema:'public', table:KV_TABLE, filter:'key=eq.'+key}, payload => {
+              if(payload.new && payload.new.value !== undefined) applyFn(payload.new.value);
+            })
+            .subscribe();
+          return () => sb.removeChannel(canal);
         },
-        // ajuste de stock con transacción — para que dos dispositivos no se pisen un
-        // cambio a la vez si suman/restan lo mismo casi al mismo tiempo. Si el backend
-        // nuevo no tiene transacciones, un "leer, sumar, escribir" normal ya vale
+        // ajuste de stock a prueba de que dos dispositivos escriban a la vez — llama
+        // a la función "ajustar_stock" creada con el SQL de configuración inicial
         async adjustStockAtomic(item, delta){
-          const ref = db.collection(FIRESTORE_COLLECTION).doc('catalog');
-          await db.runTransaction(async tx => {
-            const doc = await tx.get(ref);
-            const serverCatalog = doc.exists ? doc.data().value : [];
-            const serverItem = serverCatalog.find(m => m.id === item.id);
-            if(serverItem) serverItem.qty += delta;
-            else serverCatalog.push(Object.assign({}, item));
-            tx.set(ref, {value: serverCatalog, updatedAt: firebase.firestore.FieldValue.serverTimestamp()});
-          });
+          const { error } = await sb.rpc('ajustar_stock', {clave:'catalog', item_id:item.id, delta, item_nuevo:item});
+          if(error) throw error;
+        },
+        // escucha las órdenes de trabajo nuevas que crea la otra app conectada al
+        // mismo proyecto de Supabase, para reflejarlas en Tecnomat sin hacerlo a mano
+        watchOrdenesTrabajo(applyFn){
+          return sb.channel('ordenes-trabajo')
+            .on('postgres_changes', {event:'INSERT', schema:'public', table:'ordenes_trabajo'}, payload => applyFn(payload.new))
+            .subscribe();
+        },
+        async getMaterialesDeOrden(ordenId){
+          const { data, error } = await sb.from('orden_materiales').select('*').eq('orden_id', ordenId);
+          if(error) throw error;
+          return data || [];
+        },
+        // escucha altas y cambios en el catálogo maestro que sincroniza A3 (vía la
+        // otra app) — nombre y precio, no cantidades, eso lo sigue llevando Tecnomat
+        watchMateriales(applyFn){
+          return sb.channel('materiales')
+            .on('postgres_changes', {event:'INSERT', schema:'public', table:'materiales'}, payload => applyFn(payload.new))
+            .on('postgres_changes', {event:'UPDATE', schema:'public', table:'materiales'}, payload => applyFn(payload.new))
+            .subscribe();
+        },
+        async getMaterialesActuales(){
+          const { data, error } = await sb.from('materiales').select('*');
+          if(error) throw error;
+          return data || [];
+        },
+        // lista rápida de materiales frecuentes — se lee entera y se escucha en
+        // tiempo real, igual que el catálogo de A3, pero es una tabla aparte
+        watchMaterialesRapidos(applyFn){
+          return sb.channel('materiales-rapidos')
+            .on('postgres_changes', {event:'*', schema:'public', table:'materiales_rapidos'}, () => applyFn())
+            .subscribe();
+        },
+        async getMaterialesRapidos(){
+          const { data, error } = await sb.from('materiales_rapidos').select('*').order('orden', {ascending:true});
+          if(error) throw error;
+          return data || [];
         },
         auth: {
-          signIn(email, pass){ return fbAuth.signInWithEmailAndPassword(email, pass); },
-          signOut(){ return fbAuth.signOut(); },
-          onChange(cb){ fbAuth.onAuthStateChanged(cb); },
-          currentUserEmail(){ return (fbAuth.currentUser && fbAuth.currentUser.email) || ''; }
+          async signIn(email, pass){
+            const { data, error } = await sb.auth.signInWithPassword({email, password:pass});
+            if(error) throw error;
+            return data;
+          },
+          async signOut(){ await sb.auth.signOut(); },
+          onChange(cb){
+            // en supabase-js, el primer aviso ya trae la sesión guardada de antes, si la hay
+            sb.auth.onAuthStateChange((event, session) => {
+              sbCurrentUserEmail = (session && session.user && session.user.email) || '';
+              cb(session ? session.user : null);
+            });
+          },
+          currentUserEmail(){ return sbCurrentUserEmail; }
         }
       };
     }
@@ -1079,7 +1124,7 @@
   }
   // AudioContext compartido — se "desbloquea" con la primera interacción del usuario en
   // toda la sesión (un clic o toque en cualquier sitio). Los avisos que llegan solos por
-  // Firestore (sin que estés tocando nada justo en ese momento, como cuando Taller te
+  // Supabase (sin que estés tocando nada justo en ese momento, como cuando Taller te
   // avisa desde otro dispositivo) necesitan esto: si se crea un AudioContext nuevo sin
   // desbloquear antes, el navegador lo deja "suspendido" en silencio y el sonido no llega
   // a sonar — sin ningún error, así que es fácil no darse cuenta de por qué no suena
@@ -1126,7 +1171,7 @@
     }catch(e){}
   }
 
-  // taller no ve Almacén — es solo de interfaz, la restricción real va en Firestore
+  // taller no ve Almacén — es solo de interfaz, la restricción real va en Supabase
   function getUserRole(){
     if(!hasFirebase) return 'almacen'; // sin login (o app sin backend) = acceso completo
     const email = backend.auth.currentUserEmail().toLowerCase();
@@ -1286,6 +1331,7 @@
     vehiculos: [], // [{id, matricula, marca, modelo, anio, kmActual}]
     tareasMantenimiento: [], // [{id, vehiculoId, nombre, intervaloKm, intervaloMeses, ultimoKm, ultimaFecha}]
     vehiculoActualId: null,
+    materialesRapidos: [], // [{id, codigo, nombre, orden}] — lista fija para elegir de un vistazo, junto al chat
     pedidoChat: [],           // [{id, texto, ts, tsMs}] - el mismo chat que en Trabajo, pero para Pedido
     pendingDelivery: null,    // {items:[...], recipientName} - el pedido ya congelado, esperando la firma
     deliveries: [],            // [{id, items, recipientName, signature, ts, tsMs}] - entregas ya firmadas
@@ -1378,18 +1424,18 @@
   window.addEventListener('offline', actualizarBannerConexion);
   if(!navigator.onLine) actualizarBannerConexion();
 
-  // ---------- Storage: Firestore > window.storage > localStorage ----------
+  // ---------- Storage: Supabase > window.storage > localStorage ----------
   const hasCloudStorage = (typeof window.storage !== 'undefined') && (typeof window.storage.get === 'function');
   const LS_PREFIX = 'tecnomat_materiales_';
   (function(){
     const note = document.getElementById('autosaveNote');
     if(!note) return;
     if(hasFirebase){
-      note.innerHTML = '<span class="autosave-dot"></span> Guardado en la nube (Firebase) — compartido entre todos los dispositivos.';
+      note.innerHTML = '<span class="autosave-dot"></span> Guardado en la nube (Supabase) — compartido entre todos los dispositivos.';
     }else if(hasCloudStorage){
       note.innerHTML = '<span class="autosave-dot"></span> Todo se guarda automáticamente — stock, montaje y proyectos.';
     }else{
-      note.innerHTML = '<span class="autosave-dot"></span> Guardado automáticamente en este navegador (localStorage). Usa "Descargar todo" en Almacén para tener una copia fuera del navegador, o configura Firebase para compartirlo entre dispositivos.';
+      note.innerHTML = '<span class="autosave-dot"></span> Guardado automáticamente en este navegador (localStorage). Usa "Descargar todo" en Almacén para tener una copia fuera del navegador, o configura Supabase para compartirlo entre dispositivos.';
     }
   })();
 
@@ -1505,7 +1551,7 @@
     setupRealtimeWatchers();
   }
 
-  // ---------- Tiempo real (solo con Firebase) ----------
+  // ---------- Tiempo real (solo con Supabase) ----------
   let unsubscribers = {};
   // si llegan varios cambios en tiempo real casi a la vez (de otro dispositivo, por
   // ejemplo), se juntan en un solo repintado en vez de uno por cada documento que cambia
@@ -1528,6 +1574,75 @@
     watchKey('pedido_items', v => { state.pedidoItems = v; });
     watchKey('notifications', v => { state.notifications = v; });
     watchCurrentGroup();
+    if(backend.watchOrdenesTrabajo) backend.watchOrdenesTrabajo(orden => procesarOrdenTrabajoRecibida(orden));
+    if(backend.watchMateriales) backend.watchMateriales(material => procesarMaterialA3(material));
+    // además de escuchar los cambios nuevos, reviso una vez al arrancar lo que
+    // A3 ya tenía sincronizado antes de que esta sesión empezara a escuchar
+    if(backend.getMaterialesActuales){
+      backend.getMaterialesActuales().then(materiales => {
+        materiales.forEach(m => procesarMaterialA3(m));
+      }).catch(e => {});
+    }
+    const cargarMaterialesRapidos = () => {
+      if(!backend.getMaterialesRapidos) return;
+      backend.getMaterialesRapidos().then(lista => { state.materialesRapidos = lista; render(); }).catch(e => {});
+    };
+    cargarMaterialesRapidos();
+    if(backend.watchMaterialesRapidos) backend.watchMaterialesRapidos(cargarMaterialesRapidos);
+  }
+  // un material nuevo o actualizado en A3 (sincronizado vía la otra app) se refleja
+  // en el catálogo de Tecnomat — si el código ya existe, actualizo su descripción
+  // (sin tocar cantidad, ubicación ni nada que ya gestione Tecnomat); si no existe,
+  // lo doy de alta con 0 unidades, igual que con cualquier referencia nueva
+  function procesarMaterialA3(material){
+    const codigo = (material.codigo_articulo || '').trim();
+    if(!codigo) return;
+    const existente = findInCatalog(codigo);
+    if(existente){
+      if(material.descripcion) existente.desc = material.descripcion;
+      saveCatalog();
+    }else{
+      state.catalog.push({
+        id: uid(), code: codigo, desc: material.descripcion || codigo, qty: 0,
+        location: '', specs: '', marca: '', referencia: '', categoria: '', coste: 0
+      });
+      saveCatalog();
+    }
+    render();
+  }
+  // una OT o proyecto nuevo, generado por la otra app conectada al mismo Supabase,
+  // se convierte en una orden de Tecnomat sola — sin tener que crearla a mano
+  async function procesarOrdenTrabajoRecibida(orden){
+    const kind = orden.tipo_orden === 'proyecto' ? 'proyecto' : 'montaje';
+    if(findGroup(kind, orden.nombre)) return; // ya existía, no la duplico
+    state.groups[kind].push({name: orden.nombre, status: orden.estado || 'activo', tipo: orden.interno_externo || ''});
+    saveGroups(kind);
+
+    let materiales = [];
+    try{ materiales = await backend.getMaterialesDeOrden(orden.id); }catch(e){}
+    const items = materiales.map(m => {
+      const enStock = findInCatalog(m.codigo);
+      return enStock
+        ? {id:uid(), itemId:enStock.id, code:enStock.code, desc:enStock.desc, referencia:m.referencia||enStock.referencia||'', qty:Number(m.cantidad)||1, pedido:0, reserva:0}
+        : {id:uid(), itemId:null, code:'', desc:'', referencia:m.referencia||'', textoLibre:m.descripcion||m.codigo, qty:Number(m.cantidad)||1, pedido:0, reserva:0};
+    });
+
+    const gd = emptyGroupData();
+    gd.pendiente.requesterName = orden.solicitante || '';
+    gd.pendiente.items = items;
+    agregarMensajeChat(gd.chat, 'Recibida desde otra app'+(orden.solicitante?' · pedido por '+orden.solicitante:'')+' · '+items.length+' línea(s) de material');
+    state.groupData[kind+'::'+orden.nombre] = gd;
+    saveGroupData(kind, orden.nombre);
+
+    // mismo aviso que al guardar cualquier Hoja de pedido — correo, banner, sonido
+    sendEmailAlert('Nueva OT recibida — '+orden.nombre, 'Se ha recibido automáticamente desde otra app.\n\nPedido por: '+(orden.solicitante||'sin especificar')+'\nLíneas: '+items.length);
+    state.notifications.unshift({
+      id: uid(), groupKind: kind, groupName: orden.nombre,
+      requesterName: orden.solicitante || 'sin especificar', tipo: orden.interno_externo || '',
+      lineas: items.length, ts: nowStr(), tsMs: Date.now(), leida: false
+    });
+    saveNotifications();
+    render();
   }
   // se llama también al cambiar de orden/proyecto
   function watchCurrentGroup(){
@@ -1670,7 +1785,7 @@
 
   function saveDeliveries(){
     // las firmas pesan (son una imagen) — con muchas guardadas se podía llegar al
-    // límite de 1MB por documento de Firestore y dejar de guardarse sin avisar.
+    // límite de tamaño por fila y dejar de guardarse sin avisar.
     // se guardan las 40 más recientes con la firma completa, y el resto se archiva
     // como un resumen sin la imagen (el dato importante — quién, cuándo, qué — se conserva)
     if(state.deliveries.length > 50){
@@ -1807,7 +1922,7 @@
     if(!item) return;
     const opciones = CATEGORIAS_STOCK.map((c,i)=>(i+1)+'. '+c).join('\n');
     const val = prompt('Categoría para '+item.code+' — '+item.desc+':\n\n'+opciones+'\n\nEscribe el número, el nombre exacto, o déjalo en blanco para quitarla.', item.categoria || '');
-    if(val === null) return;
+    if(val == null) return;
     const texto = val.trim();
     if(!texto){ item.categoria = ''; }
     else{
@@ -1857,10 +1972,28 @@
         <button class="btn primary" id="saveEditItemBtn" style="width:auto; flex:1;">Guardar</button>
         <button class="cam-btn" id="cancelEditItemBtn" style="flex:none;">Cancelar</button>
       </div>
+      <div class="scanner-row" style="margin-top:10px; padding-top:10px; border-top:1px dashed var(--border);">
+        <button class="cam-btn" id="editItemEtiquetaBtn" style="flex:1; padding:8px 10px; font-size:12px; min-height:auto;">Imprimir etiqueta</button>
+        <button class="cam-btn" id="editItemDupBtn" style="flex:1; padding:8px 10px; font-size:12px; min-height:auto;">+ Otra referencia</button>
+        <button class="btn-return" id="editItemDelBtn" style="flex:1; padding:8px 10px; font-size:12px; min-height:auto;">Eliminar</button>
+      </div>
     `;
     overlay.style.display = 'flex';
     $('#saveEditItemBtn').addEventListener('click', saveEditItem);
     $('#cancelEditItemBtn').addEventListener('click', closeEditItem);
+    $('#editItemEtiquetaBtn').addEventListener('click', ()=> imprimirEtiqueta(item.id));
+    $('#editItemDupBtn').addEventListener('click', ()=>{
+      // reutilizo el formulario de "referencia nueva", junto al escáner
+      closeEditItem();
+      pendingCodeChoice = null;
+      pendingUnknownCode = {code: item.code};
+      showStatus('Rellena la nueva referencia para el código "'+item.code+'" justo arriba, junto al escáner.');
+      render();
+    });
+    $('#editItemDelBtn').addEventListener('click', ()=>{
+      closeEditItem();
+      deleteStockItem(item.id);
+    });
     $('#editArticulo').focus();
   }
 
@@ -2319,6 +2452,36 @@
 
   // línea sin referencia real — solo un texto describiendo lo que hace falta; almacén
   // le asigna la referencia de verdad más adelante con asignarReferencia()
+  // añade de golpe los materiales marcados en la lista rápida — busca cada uno en
+  // el stock por su código; si no lo encuentra (o no tiene código puesto), va como
+  // línea "sin referencia todavía", igual que al escribir a mano en el chat
+  function anadirMaterialesRapidos(){
+    const target = currentTarget();
+    if(!target) return;
+    if(!pedirNombreSolicitante(target)) return;
+    const el = $('#mainList');
+    const seleccionados = [...el.querySelectorAll('.rapido-check:checked')];
+    if(!seleccionados.length){ showStatus('Marca al menos un material de la lista rápida.'); return; }
+    let anadidos = 0;
+    seleccionados.forEach(chk=>{
+      const id = chk.dataset.rapidoId;
+      const m = state.materialesRapidos.find(x => x.id === id);
+      if(!m) return;
+      const qtyInput = el.querySelector('[data-rapido-qty="'+id+'"]');
+      const qty = Math.max(1, parseInt(qtyInput.value,10) || 1);
+      const enStock = m.codigo ? findInCatalog(m.codigo) : null;
+      const item = enStock
+        ? {id:uid(), itemId:enStock.id, code:enStock.code, desc:enStock.desc, referencia:enStock.referencia||'', qty, pedido:0, reserva:0}
+        : {id:uid(), itemId:null, code:'', desc:'', referencia:'', textoLibre:m.nombre, qty, pedido:0, reserva:0};
+      target.pendiente.items.push(item);
+      anadidos++;
+    });
+    if(!anadidos) return;
+    agregarMensajeChat(target.chat, 'Añadido desde la lista rápida: '+anadidos+' línea(s)');
+    persistCurrentTarget();
+    render();
+  }
+
   function enviarPeticionChat(){
     const target = currentTarget();
     if(!target) return;
@@ -3351,6 +3514,14 @@
     else if(state.mode === 'mantenimiento') renderMantenimientoMain();
     else renderMainList();
     renderSidePanel();
+    // si el panel lateral no tiene nada que enseñar (por ejemplo, en Mantenimiento
+    // sin ningún vehículo dado de alta todavía), dejo que el contenido principal
+    // use todo el ancho en vez de quedar empujado a un lado por un hueco vacío
+    const sidePanelEl = $('#sidePanel');
+    if(sidePanelEl && colsEl){
+      const vacio = !sidePanelEl.innerHTML.trim();
+      colsEl.classList.toggle('cols-sin-lateral', vacio);
+    }
     renderSignatureOverlay();
     const datalistEl = $('#ubicacionesList');
     if(datalistEl) datalistEl.innerHTML = state.ubicaciones.map(u => `<option value="${esc(u)}">`).join('');
@@ -3529,7 +3700,11 @@
   }
 
   let mostrarFormNuevoTrabajo = false; // el formulario de "crear nuevo" empieza escondido, para no saturar la barra
+  let masOpcionesAlmacenAbierto = false; // el panel lateral de Almacén empieza compacto — Resumen y Últimos movimientos a la vista, el resto detrás de un botón
+  let masOpcionesTrabajoLateralAbierto = false; // igual, pero para el panel lateral de Trabajo
   let mostrarMasOpcionesTrabajo = false; // Finalizar/Eliminar empiezan escondidos, para ocupar menos en móvil
+  let mostrarDocumentosTrabajo = false; // el panel de documentos escaneados empieza plegado, para no saturar la pantalla
+  let mostrarFotosVehiculo = false; // el panel de fotos del vehículo también empieza plegado, por lo mismo
 
   // genero aquí el HTML del selector/creador de orden, para insertarlo dentro del
   // propio bloque del chat — así el selector y el chat van siempre juntos
@@ -3816,9 +3991,6 @@
           <span class="stock-qty ${m.qty>0?'ok':'low'}">${m.qty}</span>
           <button class="cam-btn" style="padding:9px 14px; font-size:13px; min-height:44px;" data-edit-btn="${m.id}">Editar</button>
           <button class="cam-btn" style="padding:9px 14px; font-size:13px; min-height:44px;" data-qty-btn="${m.id}">Cambiar cantidad</button>
-          <button class="cam-btn" style="padding:9px 14px; font-size:13px; min-height:44px;" data-label-btn="${m.id}">Etiqueta</button>
-          <button class="cam-btn" style="padding:9px 14px; font-size:13px; min-height:44px;" data-dup-btn="${esc(m.code)}">+ Otra referencia</button>
-          <button class="btn-return" style="padding:9px 14px; font-size:13px; min-height:44px;" data-del-btn="${m.id}">Eliminar</button>
         </div>
       </div>
     `).join('') + (items.length > itemsVisibles.length ? `
@@ -3974,21 +4146,6 @@
     });
     el.querySelectorAll('[data-qty-btn]').forEach(btn=>{
       btn.addEventListener('click', ()=> changeQuantity(btn.dataset.qtyBtn));
-    });
-    el.querySelectorAll('[data-label-btn]').forEach(btn=>{
-      btn.addEventListener('click', ()=> imprimirEtiqueta(btn.dataset.labelBtn));
-    });
-    el.querySelectorAll('[data-del-btn]').forEach(btn=>{
-      btn.addEventListener('click', ()=> deleteStockItem(btn.dataset.delBtn));
-    });
-    el.querySelectorAll('[data-dup-btn]').forEach(btn=>{
-      btn.addEventListener('click', ()=>{
-        // reutilizo el formulario de "referencia nueva"
-        pendingCodeChoice = null;
-        pendingUnknownCode = {code: btn.dataset.dupBtn};
-        showStatus('Rellena la nueva referencia para el código "'+btn.dataset.dupBtn+'" justo arriba, junto al escáner.');
-        render();
-      });
     });
     $('#addManualBtn').addEventListener('click', ()=>{
       addManualStock($('#mCode').value, $('#mDesc').value, $('#mQty').value, $('#mLoc').value, $('#mCategoria').value, $('#mRef').value);
@@ -4220,7 +4377,11 @@
       <button class="cam-btn" id="addTareaMantBtn" style="width:100%; margin-top:10px;">+ Añadir tarea de mantenimiento</button>
 
       <div class="ticket" style="margin-top:14px;">
-        <div class="ticket-header"><span class="ticket-title">Fotos de ${esc(v.matricula)}</span></div>
+        <div class="ticket-header" id="toggleFotosBtn" style="cursor:pointer;">
+          <span class="ticket-title">Fotos de ${esc(v.matricula)}${(v.fotos||[]).length ? ' ('+v.fotos.length+')' : ''}</span>
+          <span class="ticket-title">${mostrarFotosVehiculo ? 'Ocultar' : 'Ver'}</span>
+        </div>
+        ${mostrarFotosVehiculo ? `
         <div class="ticket-body">
           ${(v.fotos||[]).length ? `
           <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(90px, 1fr)); gap:8px; padding:12px 14px;">
@@ -4237,6 +4398,7 @@
             <button class="cam-btn" id="addFotoBtn" style="width:100%;">+ Añadir foto</button>
           </div>
         </div>
+        ` : ''}
       </div>
     `;
 
@@ -4276,24 +4438,31 @@
       btn.addEventListener('click', ()=> abrirFormTarea(btn.dataset.editarTareaId));
     });
 
-    const fotoInput = $('#fotoInput');
-    $('#addFotoBtn').addEventListener('click', ()=> fotoInput.click());
-    fotoInput.addEventListener('change', async ()=>{
-      const file = fotoInput.files[0];
-      if(!file) return;
-      showStatus('Guardando foto…');
-      try{
-        const dataUrl = await redimensionarImagen(file, 1000, 0.6);
-        v.fotos = v.fotos || [];
-        v.fotos.unshift(dataUrl);
-        if(v.fotos.length > 30) v.fotos = v.fotos.slice(0,30); // no crece sin límite
-        saveVehiculos();
-        render();
-      }catch(e){
-        showStatus('No se pudo guardar la foto: '+e.message);
-      }
-      fotoInput.value = '';
+    const toggleFotosBtn = $('#toggleFotosBtn');
+    if(toggleFotosBtn) toggleFotosBtn.addEventListener('click', ()=>{
+      mostrarFotosVehiculo = !mostrarFotosVehiculo;
+      render();
     });
+    const fotoInput = $('#fotoInput');
+    if(fotoInput){
+      $('#addFotoBtn').addEventListener('click', ()=> fotoInput.click());
+      fotoInput.addEventListener('change', async ()=>{
+        const file = fotoInput.files[0];
+        if(!file) return;
+        showStatus('Guardando foto…');
+        try{
+          const dataUrl = await redimensionarImagen(file, 1000, 0.6);
+          v.fotos = v.fotos || [];
+          v.fotos.unshift(dataUrl);
+          if(v.fotos.length > 30) v.fotos = v.fotos.slice(0,30); // no crece sin límite
+          saveVehiculos();
+          render();
+        }catch(e){
+          showStatus('No se pudo guardar la foto: '+e.message);
+        }
+        fotoInput.value = '';
+      });
+    }
     el.querySelectorAll('[data-ver-foto]').forEach(img=>{
       img.addEventListener('click', ()=> window.open(img.src, '_blank'));
     });
@@ -4596,6 +4765,21 @@
             <span class="ticket-title">Chat</span>
           </div>
           <div class="ticket-body">${renderChatMessages(target.chat, {target, puedeAsociar: !esTaller})}</div>
+          ${state.materialesRapidos.length ? `
+          <div style="padding:10px 14px; border-top:1px solid var(--border);">
+            <p style="font-size:11px; font-weight:700; color:var(--text-faint); text-transform:uppercase; letter-spacing:.03em; margin:0 0 8px 2px;">Lista rápida</p>
+            <div style="display:flex; flex-direction:column; gap:6px; max-height:180px; overflow-y:auto;">
+              ${state.materialesRapidos.map(m => `
+                <label style="display:flex; align-items:center; gap:8px; font-size:12.5px;">
+                  <input type="checkbox" class="rapido-check" data-rapido-id="${m.id}" style="width:16px; height:16px; flex:none;">
+                  <span style="flex:1;">${esc(m.nombre)}</span>
+                  <input type="number" class="rapido-qty" data-rapido-qty="${m.id}" value="1" min="1" style="width:52px; flex:none;">
+                </label>
+              `).join('')}
+            </div>
+            <button class="cam-btn" id="anadirRapidosBtn" style="width:100%; margin-top:8px;">Añadir seleccionados</button>
+          </div>
+          ` : ''}
           <div style="display:flex; gap:6px; padding:10px 14px; border-top:1px solid var(--border);">
             <input type="text" id="chatMensajeInput" placeholder="Describe lo que hace falta…" style="flex:2; min-width:0;">
             <input type="number" id="chatCantidadInput" placeholder="Uds" min="1" value="1" style="flex:none; width:64px;">
@@ -4757,11 +4941,16 @@
       `;
     }
 
+    const nDocs = (target.documentos||[]).length;
     const documentosHtml = `
       <div class="ticket" style="margin-top:14px;">
-        <div class="ticket-header"><span class="ticket-title">Documentos escaneados</span></div>
+        <div class="ticket-header" id="toggleDocumentosBtn" style="cursor:pointer;">
+          <span class="ticket-title">Documentos escaneados${nDocs ? ' ('+nDocs+')' : ''}</span>
+          <span class="ticket-title">${mostrarDocumentosTrabajo ? 'Ocultar' : 'Ver'}</span>
+        </div>
+        ${mostrarDocumentosTrabajo ? `
         <div class="ticket-body">
-          ${(target.documentos||[]).length ? (target.documentos||[]).map(d => `
+          ${nDocs ? (target.documentos||[]).map(d => `
             <div style="display:flex; align-items:center; gap:10px; padding:11px 14px; border-bottom:1px dashed var(--border);">
               <div style="flex:1; min-width:0;">
                 <div style="font-weight:700; font-size:13px;">${esc(d.nombre)}</div>
@@ -4775,11 +4964,17 @@
             <button class="cam-btn" id="escanearDocBtn" style="width:100%;">Escanear documento</button>
           </div>
         </div>
+        ` : ''}
       </div>
     `;
 
     el.innerHTML = selectorHtml + tabs + bodyHtml + pendienteHtml + documentosHtml;
     wireTrabajoSelector(el);
+    const toggleDocumentosBtn = $('#toggleDocumentosBtn');
+    if(toggleDocumentosBtn) toggleDocumentosBtn.addEventListener('click', ()=>{
+      mostrarDocumentosTrabajo = !mostrarDocumentosTrabajo;
+      render();
+    });
     scrollChatAlFinal(el);
 
     const escanearDocBtn = $('#escanearDocBtn');
@@ -4817,6 +5012,8 @@
     });
     const chatEnviarBtn = $('#chatEnviarBtn');
     if(chatEnviarBtn) chatEnviarBtn.addEventListener('click', enviarPeticionChat);
+    const anadirRapidosBtn = $('#anadirRapidosBtn');
+    if(anadirRapidosBtn) anadirRapidosBtn.addEventListener('click', anadirMaterialesRapidos);
     const chatMensajeInput = $('#chatMensajeInput');
     if(chatMensajeInput) chatMensajeInput.addEventListener('keydown', e=>{
       if(e.key==='Enter'){ e.preventDefault(); enviarPeticionChat(); }
@@ -4942,6 +5139,18 @@
         </div>
 
         <div class="panel">
+          <p class="panel-title">Últimos movimientos</p>
+          ${movRows || '<div style="color:var(--text-faint); font-size:12.5px;">Sin movimientos todavía.</div>'}
+          ${state.movementsArchive.length ? `
+          <p style="font-size:11px; color:var(--text-faint); margin-top:8px;">
+            Histórico más antiguo archivado por mes: ${state.movementsArchive.slice(0,3).map(a=>a.month+' ('+a.entradas+' entr. / '+a.salidas+' sal.)').join(' · ')}${state.movementsArchive.length>3?'…':''}
+          </p>` : ''}
+        </div>
+
+        <button class="cam-btn" id="masOpcionesAlmacenBtn" style="width:100%;">${masOpcionesAlmacenAbierto?'Ocultar más opciones':'Más opciones'}</button>
+
+        ${masOpcionesAlmacenAbierto ? `
+        <div class="panel" style="margin-top:14px;">
           <p class="panel-title">Exportar / Importar</p>
           <button class="btn primary" id="exportStockBtn">Exportar stock y movimientos</button>
           <label class="btn" style="text-align:center; display:block;">
@@ -5024,18 +5233,15 @@
           <p class="panel-title">Actividad (últimos 30 días)</p>
           ${renderActivityBars()}
         </div>
-
-        <div class="panel">
-          <p class="panel-title">Últimos movimientos</p>
-          ${movRows || '<div style="color:var(--text-faint); font-size:12.5px;">Sin movimientos todavía.</div>'}
-          ${state.movementsArchive.length ? `
-          <p style="font-size:11px; color:var(--text-faint); margin-top:8px;">
-            Histórico más antiguo archivado por mes: ${state.movementsArchive.slice(0,3).map(a=>a.month+' ('+a.entradas+' entr. / '+a.salidas+' sal.)').join(' · ')}${state.movementsArchive.length>3?'…':''}
-          </p>` : ''}
-        </div>
+        ` : ''}
       `;
 
-      $('#exportStockBtn').addEventListener('click', exportStock);
+      $('#masOpcionesAlmacenBtn').addEventListener('click', ()=>{
+        masOpcionesAlmacenAbierto = !masOpcionesAlmacenAbierto;
+        render();
+      });
+      const exportStockBtnEl = $('#exportStockBtn');
+      if(exportStockBtnEl) exportStockBtnEl.addEventListener('click', exportStock);
       const fileInput = $('#catalogFile');
       if(fileInput) fileInput.addEventListener('change', e=>{
         if(e.target.files[0]) importCatalogFile(e.target.files[0]);
@@ -5045,12 +5251,14 @@
         if(e.target.files[0]) overwriteCatalogFromFile(e.target.files[0]);
         e.target.value = '';
       });
-      $('#exportBackupBtn').addEventListener('click', exportBackup);
+      const exportBackupBtnEl = $('#exportBackupBtn');
+      if(exportBackupBtnEl) exportBackupBtnEl.addEventListener('click', exportBackup);
       const backupInput = $('#backupFile');
       if(backupInput) backupInput.addEventListener('change', e=>{
         if(e.target.files[0]) importBackupFile(e.target.files[0]);
       });
-      $('#saveSettingsBtn').addEventListener('click', ()=>{
+      const saveSettingsBtnEl = $('#saveSettingsBtn');
+      if(saveSettingsBtnEl) saveSettingsBtnEl.addEventListener('click', ()=>{
         state.settings.bobinaAvisoDias = Math.max(0, parseInt($('#setBobinaDias').value,10) || 0);
         state.settings.sonidoEscaneo = $('#setSonidoEscaneo').checked;
         state.settings.stockBajoUmbral = Math.max(0, parseInt($('#setStockUmbral').value,10) || 0);
@@ -5173,7 +5381,10 @@
         <div class="stat-row"><span>Referencias en stock</span><span class="num">${state.catalog.length}</span></div>
       </div>
 
-      <div class="panel">
+      <button class="cam-btn" id="masOpcionesTrabajoLateralBtn" style="width:100%;">${masOpcionesTrabajoLateralAbierto?'Ocultar más opciones':'Más opciones'}</button>
+
+      ${masOpcionesTrabajoLateralAbierto ? `
+      <div class="panel" style="margin-top:14px;">
         <p class="panel-title">Exportar / Gestionar</p>
         <button class="btn primary" id="exportBtn" ${target?'':'disabled'}>Exportar a Excel</button>
         <button class="btn ghost-danger" id="clearBtn" ${target?'':'disabled'}>Vaciar esta lista</button>
@@ -5221,8 +5432,14 @@
           <button class="btn" id="exportDeliveriesBtn" style="margin-top:8px;">Exportar historial de entregas</button>
         </div>`;
       })()}
+      ` : ''}
     `;
 
+    const masOpcionesTrabajoLateralBtn = $('#masOpcionesTrabajoLateralBtn');
+    if(masOpcionesTrabajoLateralBtn) masOpcionesTrabajoLateralBtn.addEventListener('click', ()=>{
+      masOpcionesTrabajoLateralAbierto = !masOpcionesTrabajoLateralAbierto;
+      render();
+    });
     const exportBtn = $('#exportBtn');
     if(exportBtn) exportBtn.addEventListener('click', ()=>{
       const label = state.current[state.mode] || state.mode;
