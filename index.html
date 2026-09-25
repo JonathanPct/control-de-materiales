@@ -24,6 +24,8 @@
     --success-soft:rgba(31,190,143,0.14);
     --danger:#E14C6B;
     --danger-soft:rgba(225,76,107,0.14);
+    --warning:#D89A2A;
+    --warning-soft:rgba(216,154,42,0.16);
     --text-primary:#EDEFF2;
     --text-muted:#9198A1;
     --text-faint:#5E656D;
@@ -59,6 +61,11 @@
     --accent-dim:#3E5C22;
     --accent-soft:rgba(111,162,60,0.16);
   }
+  #app.mode-resumen{
+    --accent:#8A8FA0;
+    --accent-dim:#4E5260;
+    --accent-soft:rgba(138,143,160,0.16);
+  }
 
   /* tema claro — mismos colores por sección, ajustados para leerse bien sobre fondo claro.
      se declara también en html.tema-claro para que la pantalla de login (que está fuera
@@ -76,6 +83,8 @@
     --success-soft:rgba(15,143,104,0.12);
     --danger:#C23A57;
     --danger-soft:rgba(194,58,87,0.12);
+    --warning:#A8681A;
+    --warning-soft:rgba(168,104,26,0.13);
   }
   #app.tema-claro.mode-almacen{
     --accent:#C68A00; --accent-dim:#7A5600; --accent-soft:rgba(198,138,0,0.14);
@@ -91,6 +100,9 @@
   }
   #app.tema-claro.mode-mantenimiento{
     --accent:#4D7A2A; --accent-dim:#31501A; --accent-soft:rgba(77,122,42,0.14);
+  }
+  #app.tema-claro.mode-resumen{
+    --accent:#5B5F6E; --accent-dim:#3A3D47; --accent-soft:rgba(91,95,110,0.12);
   }
   *{box-sizing:border-box;}
 
@@ -610,10 +622,15 @@
     font-size:13px;
     font-weight:600;
     padding:10px;
+    min-height:44px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
     border-radius:0;
     clip-path:polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
     cursor:pointer;
     margin-bottom:8px;
+    box-sizing:border-box;
     transition:background .15s, filter .15s, transform .08s;
   }
   .btn:active{transform:translateY(1px);}
@@ -949,6 +966,9 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" defer></script>
@@ -956,113 +976,194 @@
 (function(){
 
   // ============================================================
-  // ADAPTADOR DE BACKEND — todo lo que depende de Supabase vive
-  // aquí dentro, y solo aquí. Para migrar a otro hosting o base de
-  // datos, esto es lo ÚNICO que hace falta reescribir: el resto de
-  // la app llama siempre a "backend.get/set/delete/watch" y a
-  // "backend.auth.*", nunca a Supabase directamente. Ver el README,
-  // sección "Migrar a otro backend", para la lista completa de
-  // métodos que un backend nuevo tiene que implementar.
+  // ADAPTADOR DE BACKEND — Supabase y Firebase trabajan juntos:
+  // - Firebase Authentication lleva el login y el control de usuarios.
+  // - Los datos generales (catálogo, movimientos, chat, pedidos,
+  //   avisos, entregas, bobinas, ubicaciones, vehículos, mantenimiento)
+  //   se escriben en los dos a la vez, y se leen del que responda.
+  // - Las tablas de la integración con A3 (ordenes_trabajo, materiales,
+  //   materiales_rapidos) las escribe la otra app directamente en
+  //   Supabase, así que solo viven ahí.
   //
-  // Rellena estas dos líneas con los datos de tu proyecto (Project
-  // Settings → API en el panel de Supabase) antes de publicar la app:
+  // Si solo se rellena uno de los dos, la app sigue funcionando con
+  // esa única fuente (sin login si falta Firebase, ver más abajo).
+  // Ver el README, sección "Migrar a otro backend", para la lista
+  // completa de métodos que un backend nuevo tiene que implementar.
   const supabaseUrl = 'TU_SUPABASE_URL';       // ej: https://xxxxxxxx.supabase.co
   const supabaseAnonKey = 'TU_SUPABASE_ANON_KEY';
   const KV_TABLE = 'tecnomat_kv';
+  const firebaseConfig = {
+    apiKey: 'TU_API_KEY',
+    authDomain: 'TU_PROYECTO.firebaseapp.com',
+    projectId: 'TU_PROYECTO',
+    storageBucket: 'TU_PROYECTO.appspot.com',
+    messagingSenderId: '000000000000',
+    appId: '1:000000000000:web:xxxxxxxxxxxxxxxxxxxxxx'
+  };
+  const FIRESTORE_COLLECTION = 'tecnomat_materiales';
   // ============================================================
 
-  let backend = null; // queda null si Supabase no está configurado o no carga — la app sigue funcionando en local
-  let sbCurrentUserEmail = ''; // se actualiza solo al iniciar/cerrar sesión, para leerlo al momento sin esperar una promesa
+  let sb = null, db = null, fbAuth = null;
   try{
     if(supabaseUrl && supabaseUrl !== 'TU_SUPABASE_URL' && typeof window.supabase !== 'undefined'){
-      const sb = window.supabase.createClient(supabaseUrl, supabaseAnonKey);
-      backend = {
-        async get(key){
-          const { data, error } = await sb.from(KV_TABLE).select('value').eq('key', key).maybeSingle();
-          if(error) throw error;
-          return data ? data.value : null;
-        },
-        async set(key, value){
-          const { error } = await sb.from(KV_TABLE).upsert({ key, value, updated_at: new Date().toISOString() });
-          if(error) throw error;
-          return {key, value};
-        },
-        async delete(key){
-          const { error } = await sb.from(KV_TABLE).delete().eq('key', key);
-          if(error) throw error;
-        },
-        // se suscribe a los cambios de una clave en tiempo real; devuelve la función
-        // para darse de baja cuando ya no haga falta escuchar más
-        watch(key, applyFn){
+      sb = window.supabase.createClient(supabaseUrl, supabaseAnonKey);
+    }
+  }catch(e){ sb = null; }
+  try{
+    if(firebaseConfig.apiKey && firebaseConfig.apiKey !== 'TU_API_KEY' && typeof firebase !== 'undefined'){
+      firebase.initializeApp(firebaseConfig);
+      db = firebase.firestore();
+      fbAuth = firebase.auth();
+    }
+  }catch(e){ db = null; fbAuth = null; }
+
+  let backend = null; // queda null si ninguno de los dos está configurado — la app sigue funcionando en local
+  if(sb || db){
+    backend = {
+      async get(key){
+        // se intenta primero Supabase; si falla o no está configurado, se prueba Firebase
+        if(sb){
+          try{
+            const { data, error } = await sb.from(KV_TABLE).select('value').eq('key', key).maybeSingle();
+            if(error) throw error;
+            if(data) return data.value;
+          }catch(e){ /* se sigue con Firebase, si lo hay */ }
+        }
+        if(db){
+          const doc = await db.collection(FIRESTORE_COLLECTION).doc(key).get();
+          return doc.exists ? doc.data().value : null;
+        }
+        return null;
+      },
+      async set(key, value){
+        // se escribe en los dos a la vez, en paralelo — si uno falla, el otro sigue
+        // guardando igual, y no hace falta esperar al más lento para devolver el control
+        const resultados = await Promise.allSettled([
+          sb ? sb.from(KV_TABLE).upsert({ key, value, updated_at: new Date().toISOString() }) : Promise.resolve(null),
+          db ? db.collection(FIRESTORE_COLLECTION).doc(key).set({ value, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }) : Promise.resolve(null),
+        ]);
+        if(!resultados.some(r => r.status === 'fulfilled')){
+          throw resultados[0].reason || new Error('No se pudo guardar en ningún backend');
+        }
+        return {key, value};
+      },
+      async delete(key){
+        await Promise.allSettled([
+          sb ? sb.from(KV_TABLE).delete().eq('key', key) : Promise.resolve(),
+          db ? db.collection(FIRESTORE_COLLECTION).doc(key).delete() : Promise.resolve(),
+        ]);
+      },
+      // se suscribe a los cambios de una clave en los dos backends a la vez (el que
+      // no esté configurado simplemente no aporta ninguna suscripción); devuelve una
+      // única función para darse de baja de ambas de golpe
+      watch(key, applyFn){
+        const bajas = [];
+        if(sb){
           const canal = sb.channel('kv-'+key)
             .on('postgres_changes', {event:'*', schema:'public', table:KV_TABLE, filter:'key=eq.'+key}, payload => {
               if(payload.new && payload.new.value !== undefined) applyFn(payload.new.value);
             })
             .subscribe();
-          return () => sb.removeChannel(canal);
-        },
-        // ajuste de stock a prueba de que dos dispositivos escriban a la vez — llama
-        // a la función "ajustar_stock" creada con el SQL de configuración inicial
-        async adjustStockAtomic(item, delta){
+          bajas.push(() => sb.removeChannel(canal));
+        }
+        if(db){
+          const unsub = db.collection(FIRESTORE_COLLECTION).doc(key).onSnapshot(doc => {
+            if(doc.exists) applyFn(doc.data().value);
+          }, () => {});
+          bajas.push(unsub);
+        }
+        return () => bajas.forEach(b => b());
+      },
+      // ajuste de stock a prueba de que dos dispositivos escriban a la vez. Con los
+      // dos backends configurados, Supabase calcula el resultado de verdad (con su
+      // función de base de datos) y ese resultado se copia tal cual a Firebase —
+      // así no hay riesgo de que cada uno sume el mismo cambio por separado y acaben
+      // descuadrados. Sin Supabase, la transacción se hace directamente en Firestore.
+      async adjustStockAtomic(item, delta){
+        if(sb){
           const { error } = await sb.rpc('ajustar_stock', {clave:'catalog', item_id:item.id, delta, item_nuevo:item});
           if(error) throw error;
-        },
-        // escucha las órdenes de trabajo nuevas que crea la otra app conectada al
-        // mismo proyecto de Supabase, para reflejarlas en Tecnomat sin hacerlo a mano
-        watchOrdenesTrabajo(applyFn){
-          return sb.channel('ordenes-trabajo')
-            .on('postgres_changes', {event:'INSERT', schema:'public', table:'ordenes_trabajo'}, payload => applyFn(payload.new))
-            .subscribe();
-        },
-        async getMaterialesDeOrden(ordenId){
-          const { data, error } = await sb.from('orden_materiales').select('*').eq('orden_id', ordenId);
-          if(error) throw error;
-          return data || [];
-        },
-        // escucha altas y cambios en el catálogo maestro que sincroniza A3 (vía la
-        // otra app) — nombre y precio, no cantidades, eso lo sigue llevando Tecnomat
-        watchMateriales(applyFn){
-          return sb.channel('materiales')
-            .on('postgres_changes', {event:'INSERT', schema:'public', table:'materiales'}, payload => applyFn(payload.new))
-            .on('postgres_changes', {event:'UPDATE', schema:'public', table:'materiales'}, payload => applyFn(payload.new))
-            .subscribe();
-        },
-        async getMaterialesActuales(){
-          const { data, error } = await sb.from('materiales').select('*');
-          if(error) throw error;
-          return data || [];
-        },
-        // lista rápida de materiales frecuentes — se lee entera y se escucha en
-        // tiempo real, igual que el catálogo de A3, pero es una tabla aparte
-        watchMaterialesRapidos(applyFn){
-          return sb.channel('materiales-rapidos')
-            .on('postgres_changes', {event:'*', schema:'public', table:'materiales_rapidos'}, () => applyFn())
-            .subscribe();
-        },
-        async getMaterialesRapidos(){
-          const { data, error } = await sb.from('materiales_rapidos').select('*').order('orden', {ascending:true});
-          if(error) throw error;
-          return data || [];
-        },
-        auth: {
-          async signIn(email, pass){
-            const { data, error } = await sb.auth.signInWithPassword({email, password:pass});
-            if(error) throw error;
-            return data;
-          },
-          async signOut(){ await sb.auth.signOut(); },
-          onChange(cb){
-            // en supabase-js, el primer aviso ya trae la sesión guardada de antes, si la hay
-            sb.auth.onAuthStateChange((event, session) => {
-              sbCurrentUserEmail = (session && session.user && session.user.email) || '';
-              cb(session ? session.user : null);
-            });
-          },
-          currentUserEmail(){ return sbCurrentUserEmail; }
+          if(db){
+            try{
+              const { data } = await sb.from(KV_TABLE).select('value').eq('key','catalog').maybeSingle();
+              if(data) await db.collection(FIRESTORE_COLLECTION).doc('catalog').set({value:data.value, updatedAt: firebase.firestore.FieldValue.serverTimestamp()});
+            }catch(e){ /* Firebase se pondrá al día en el siguiente cambio de stock */ }
+          }
+          return;
         }
-      };
-    }
-  }catch(e){ backend = null; }
+        const ref = db.collection(FIRESTORE_COLLECTION).doc('catalog');
+        await db.runTransaction(async tx => {
+          const doc = await tx.get(ref);
+          const serverCatalog = doc.exists ? doc.data().value : [];
+          const serverItem = serverCatalog.find(m => m.id === item.id);
+          if(serverItem) serverItem.qty += delta;
+          else serverCatalog.push(Object.assign({}, item));
+          tx.set(ref, {value: serverCatalog, updatedAt: firebase.firestore.FieldValue.serverTimestamp()});
+        });
+      },
+      // integración con A3 — vive solo en Supabase, la otra app escribe ahí
+      // directamente; sin Supabase configurado, estas funciones no hacen nada
+      watchOrdenesTrabajo(applyFn){
+        if(!sb) return;
+        return sb.channel('ordenes-trabajo')
+          .on('postgres_changes', {event:'INSERT', schema:'public', table:'ordenes_trabajo'}, payload => applyFn(payload.new))
+          .subscribe();
+      },
+      async getMaterialesDeOrden(ordenId){
+        if(!sb) return [];
+        const { data, error } = await sb.from('orden_materiales').select('*').eq('orden_id', ordenId);
+        if(error) throw error;
+        return data || [];
+      },
+      watchMateriales(applyFn){
+        if(!sb) return;
+        return sb.channel('materiales')
+          .on('postgres_changes', {event:'INSERT', schema:'public', table:'materiales'}, payload => applyFn(payload.new))
+          .on('postgres_changes', {event:'UPDATE', schema:'public', table:'materiales'}, payload => applyFn(payload.new))
+          .subscribe();
+      },
+      async getMaterialesActuales(){
+        if(!sb) return [];
+        const { data, error } = await sb.from('materiales').select('*');
+        if(error) throw error;
+        return data || [];
+      },
+      watchMaterialesRapidos(applyFn){
+        if(!sb) return;
+        return sb.channel('materiales-rapidos')
+          .on('postgres_changes', {event:'*', schema:'public', table:'materiales_rapidos'}, () => applyFn())
+          .subscribe();
+      },
+      async getMaterialesRapidos(){
+        if(!sb) return [];
+        const { data, error } = await sb.from('materiales_rapidos').select('*').order('orden', {ascending:true});
+        if(error) throw error;
+        return data || [];
+      },
+      async addMaterialRapido(codigo, nombre, orden){
+        if(!sb) throw new Error('Esto necesita Supabase configurado');
+        const { error } = await sb.from('materiales_rapidos').insert({codigo: codigo||null, nombre, orden: orden||0});
+        if(error) throw error;
+      },
+      async deleteMaterialRapido(id){
+        if(!sb) return;
+        const { error } = await sb.from('materiales_rapidos').delete().eq('id', id);
+        if(error) throw error;
+      },
+      // login y control de usuarios — siempre por Firebase Authentication, tal
+      // como se pidió; sin Firebase configurado, no hay forma de iniciar sesión
+      // aunque Supabase sí esté disponible para los datos
+      auth: {
+        async signIn(email, pass){
+          if(!fbAuth) throw new Error('Login no disponible: falta configurar Firebase Authentication.');
+          return await fbAuth.signInWithEmailAndPassword(email, pass);
+        },
+        async signOut(){ if(fbAuth) await fbAuth.signOut(); },
+        onChange(cb){ if(fbAuth) fbAuth.onAuthStateChanged(cb); },
+        currentUserEmail(){ return (fbAuth && fbAuth.currentUser && fbAuth.currentUser.email) || ''; }
+      }
+    };
+  }
   const hasFirebase = !!backend; // se mantiene este nombre — el resto de la app ya lo usa en muchos sitios
 
   // config de EmailJS (opcional) para avisos por correo sin servidor propio
@@ -1194,6 +1295,11 @@
   function showAppScreen(user){
     document.getElementById('loginScreen').style.display = 'none';
     document.getElementById('app').style.display = 'block';
+    // mientras se cargan los datos (catálogo, órdenes...) se enseña un aviso breve,
+    // en vez de dejar la pantalla en blanco un instante y dar la sensación de que
+    // algo está roto — se sustituye solo en cuanto el primer render() de verdad ocurre
+    const mainListEl = document.getElementById('mainList');
+    if(mainListEl) mainListEl.innerHTML = '<div class="empty-state">Cargando datos…</div>';
     const area = document.getElementById('logoutArea');
     if(area){
       area.innerHTML = (user ? `<button class="cam-btn" id="logoutBtn">${user.email} · Cerrar sesión</button>` : '')
@@ -1315,7 +1421,7 @@
 
   // ---------- State ----------
   let state = {
-    mode: 'almacen', // 'montaje' | 'almacen' | 'proyecto'
+    mode: 'resumen', // se aterriza aquí siempre, incluso la primerísima vez que se abre la app
     catalog: [],           // [{code, desc, qty, location}]  qty = stock actual, location = ubicación en almacén
     movements: [],          // [{id, code, desc, qty, type:'entrada'|'salida', origin, ts, tsMs}]
     movementsArchive: [],   // [{month:'2026-07', entradas, salidas, eliminados}] — lo que se archiva al pasar de 500 líneas
@@ -1371,6 +1477,17 @@
   const slug = s => s.trim().toLowerCase().replace(/[^a-z0-9]+/g,'-');
   // escapa comillas/</> para que no rompan el HTML montado a mano
   const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  // iconos discretos (trazo fino, sin color propio, heredan el color del texto del
+  // botón) para las acciones más frecuentes — no sustituyen el texto, solo lo acompañan
+  const ICONOS = {
+    editar: '<path d="M11 4H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-7"/><path d="M14.5 2.5a1.5 1.5 0 0 1 2 2L10 11l-3 1 1-3 6.5-6.5Z"/>',
+    eliminar: '<path d="M3 5h10M6 5V3.5A1.5 1.5 0 0 1 7.5 2h1A1.5 1.5 0 0 1 10 3.5V5m1.5 0-.6 8.4a1 1 0 0 1-1 .9H5.1a1 1 0 0 1-1-.9L3.5 5"/>',
+    enviar: '<path d="M2 8 14 2 8 14l-1.5-4.5L2 8Z"/>',
+    guardar: '<path d="M3 3h9l2 2v9a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M5 3v4h6V3M5 10h6"/>',
+  };
+  function iconoBoton(nombre){
+    return `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" style="width:13px; height:13px; flex:none; opacity:.85; vertical-align:-2px; margin-right:5px;">${ICONOS[nombre]||''}</svg>`;
+  }
   // espera a que se deje de teclear un momento antes de filtrar — con listas grandes,
   // filtrar en cada pulsación de tecla es trabajo de sobra que no hace falta
   function debounce(fn, ms){
@@ -1442,7 +1559,14 @@
   async function safeGet(key){
     try{
       if(hasFirebase){
-        return await backend.get(key);
+        try{
+          return await backend.get(key);
+        }catch(e){
+          // si falla la lectura, se usa lo último guardado en este dispositivo (si lo hay)
+          // en vez de dejar la app sin datos por un fallo puntual de conexión
+          const raw = localStorage.getItem(LS_PREFIX+key);
+          return raw ? JSON.parse(raw) : null;
+        }
       }
       if(hasCloudStorage){
         const r = await window.storage.get(key, false);
@@ -1455,7 +1579,16 @@
   async function safeSet(key, value){
     try{
       if(hasFirebase){
-        return await backend.set(key, value);
+        try{
+          return await backend.set(key, value);
+        }catch(e){
+          // si falla la escritura a media conexión (no necesariamente "sin conexión"
+          // del todo, navigator.onLine puede seguir en true), el dato no se pierde:
+          // queda guardado en este dispositivo, y se reintentará sincronizar más tarde
+          localStorage.setItem(LS_PREFIX+key, JSON.stringify(value));
+          showStatus('Sin conexión con el servidor — "'+key+'" se ha guardado en este dispositivo y se sincronizará cuando vuelva.');
+          return {key, value};
+        }
       }
       if(hasCloudStorage){
         const r = await window.storage.set(key, JSON.stringify(value), false);
@@ -1508,7 +1641,9 @@
       saveGroups('proyecto');
     }
     if(appState){
-      state.mode = appState.mode || 'almacen';
+      // se recuerda la orden/proyecto/vehículo en marcha, pero siempre se aterriza en
+      // Resumen al abrir la app — así se ve lo urgente antes de entrar a trabajar
+      state.mode = 'resumen';
       state.current.montaje = appState.currentMontajeOrder || null;
       state.current.proyecto = appState.currentProject || null;
       if(appState.vehiculoActualId) state.vehiculoActualId = appState.vehiculoActualId;
@@ -1600,11 +1735,12 @@
     const existente = findInCatalog(codigo);
     if(existente){
       if(material.descripcion) existente.desc = material.descripcion;
+      existente.origenA3 = true; // este código ya está confirmado en A3, aunque el artículo se diera de alta a mano antes
       saveCatalog();
     }else{
       state.catalog.push({
         id: uid(), code: codigo, desc: material.descripcion || codigo, qty: 0,
-        location: '', specs: '', marca: '', referencia: '', categoria: '', coste: 0
+        location: '', specs: '', marca: '', referencia: '', categoria: '', coste: 0, origenA3: true
       });
       saveCatalog();
     }
@@ -1810,6 +1946,32 @@
   function saveNotifications(){ safeSet('notifications', state.notifications.slice(0,100)); }
   function saveUbicaciones(){ safeSet('ubicaciones', state.ubicaciones); }
 
+  async function refrescarMaterialesRapidos(){
+    if(!backend.getMaterialesRapidos) return;
+    try{ state.materialesRapidos = await backend.getMaterialesRapidos(); render(); }
+    catch(e){}
+  }
+  async function agregarMaterialRapido(codigo, nombre){
+    nombre = (nombre||'').trim();
+    if(!nombre){ showStatus('Escribe un nombre para el material.'); return; }
+    if(!backend.addMaterialRapido){ showStatus('Esto necesita Supabase configurado — ver README.'); return; }
+    try{
+      await backend.addMaterialRapido(codigo.trim(), nombre, state.materialesRapidos.length);
+      await refrescarMaterialesRapidos(); // no espero solo al aviso en tiempo real — se ve al momento
+      showStatus('Añadido a la lista rápida.');
+    }catch(e){
+      showStatus('No se pudo añadir: '+e.message);
+    }
+  }
+  async function quitarMaterialRapido(id){
+    if(!confirm('¿Quitar este material de la lista rápida?')) return;
+    if(!backend.deleteMaterialRapido) return;
+    try{
+      await backend.deleteMaterialRapido(id);
+      await refrescarMaterialesRapidos();
+    }catch(e){ showStatus('No se pudo quitar: '+e.message); }
+  }
+
   function addUbicacion(nombre){
     nombre = (nombre||'').trim();
     if(!nombre) return;
@@ -1969,13 +2131,13 @@
         <textarea id="editSpecs" placeholder="Características (opcional)" style="width:100%; min-height:60px; background:var(--bg-raised); border:1px solid var(--border); color:var(--text-primary); padding:9px 10px; border-radius:7px; font-size:13px; font-family:inherit;">${esc(item.specs||'')}</textarea>
       </div>
       <div class="backup-row" style="margin-top:12px;">
-        <button class="btn primary" id="saveEditItemBtn" style="width:auto; flex:1;">Guardar</button>
+        <button class="btn primary" id="saveEditItemBtn" style="width:auto; flex:1;">${iconoBoton("guardar")}Guardar</button>
         <button class="cam-btn" id="cancelEditItemBtn" style="flex:none;">Cancelar</button>
       </div>
       <div class="scanner-row" style="margin-top:10px; padding-top:10px; border-top:1px dashed var(--border);">
         <button class="cam-btn" id="editItemEtiquetaBtn" style="flex:1; padding:8px 10px; font-size:12px; min-height:auto;">Imprimir etiqueta</button>
         <button class="cam-btn" id="editItemDupBtn" style="flex:1; padding:8px 10px; font-size:12px; min-height:auto;">+ Otra referencia</button>
-        <button class="btn-return" id="editItemDelBtn" style="flex:1; padding:8px 10px; font-size:12px; min-height:auto;">Eliminar</button>
+        <button class="btn-return" id="editItemDelBtn" style="flex:1; padding:8px 10px; font-size:12px; min-height:auto;">${iconoBoton("eliminar")}Eliminar</button>
       </div>
     `;
     overlay.style.display = 'flex';
@@ -3512,6 +3674,7 @@
     if(state.mode === 'almacen') renderStockMain();
     else if(state.mode === 'pedido') renderPedidoMain();
     else if(state.mode === 'mantenimiento') renderMantenimientoMain();
+    else if(state.mode === 'resumen') renderResumenMain();
     else renderMainList();
     renderSidePanel();
     // si el panel lateral no tiene nada que enseñar (por ejemplo, en Mantenimiento
@@ -3531,7 +3694,7 @@
   function renderGlobalSearch(){
     const zone = $('#globalSearchZone');
     if(!zone) return;
-    if(state.mode === 'mantenimiento'){ zone.innerHTML = ''; return; } // esto es stock, no aplica aquí
+    if(state.mode === 'mantenimiento' || state.mode === 'resumen'){ zone.innerHTML = ''; return; } // esto es stock, no aplica aquí
     zone.innerHTML = `
       <div class="global-search">
         <input type="text" id="globalStockSearch" placeholder="Buscar en el stock por código o referencia…" value="${esc(globalSearchTerm)}">
@@ -3569,7 +3732,7 @@
           <span class="stock-loc ${m.location?'set':'unset'}">${esc(m.location)||'Sin ubicar'}</span>
           <span class="stock-qty ${m.qty>0?'ok':'low'}">${m.qty}</span>
           <button class="cam-btn" style="padding:9px 14px; font-size:13px; min-height:44px;" data-globalsearch-qty="${m.id}">Cambiar cantidad</button>
-          <button class="cam-btn" style="padding:9px 14px; font-size:13px; min-height:44px;" data-globalsearch-edit="${m.id}">Editar</button>
+          <button class="cam-btn" style="padding:9px 14px; font-size:13px; min-height:44px;" data-globalsearch-edit="${m.id}">${iconoBoton("editar")}Editar</button>
         </div>
       </div>
     `).join('') + (matches.length>15 ? `<div style="padding:6px 4px; color:var(--text-faint); font-size:11.5px;">+${matches.length-15} más… afina la búsqueda.</div>` : '');
@@ -3677,7 +3840,7 @@
     const bar = $('#modeBar');
     const esTaller = getUserRole() === 'taller';
     const enTrabajo = state.mode === 'montaje' || state.mode === 'proyecto';
-    const modes = [['trabajo','Trabajo',''],['almacen','Almacén',' (Stock)'],['pedido','Pedido',''],['mantenimiento','Mantenimiento','']]
+    const modes = [['resumen','Resumen',''],['trabajo','Trabajo',''],['almacen','Almacén',' (Stock)'],['pedido','Pedido',''],['mantenimiento','Mantenimiento','']]
       .filter(([k]) => !(esTaller && k==='almacen')); // taller no ve Almacén, ni falta que le hace
     bar.innerHTML = modes.map(([k,corto,extra]) =>
       `<button class="mode-btn ${(k==='trabajo'?enTrabajo:state.mode===k)?'active':''}" data-mode="${k}">${corto}<span class="label-extra">${extra}</span></button>`
@@ -3716,6 +3879,9 @@
       .concat(state.groups.proyecto.map(g=>({...g, kind:'proyecto'})))
       .sort((a,b)=>a.name.localeCompare(b.name));
     return `
+      ${combinada.length > 6 ? `
+      <input type="text" id="groupFilterInput" placeholder="Buscar orden o proyecto…" style="width:100%; margin-bottom:6px;">
+      ` : ''}
       <div class="project-bar">
         <select id="groupSelect" style="flex:1;">
           <option value="">— Selecciona una orden o proyecto —</option>
@@ -3735,7 +3901,7 @@
       ${(mostrarMasOpcionesTrabajo && getUserRole() !== 'taller') ? `
       <div class="project-bar project-bar-inline" style="margin-top:0;">
         <button class="cam-btn" id="toggleStatusBtn" style="flex:1;">${current.status==='finalizado'?'Reactivar':'Finalizar'}</button>
-        <button class="btn-return" id="deleteGroupBtn" style="flex:1;">Eliminar</button>
+        <button class="btn-return" id="deleteGroupBtn" style="flex:1;">${iconoBoton("eliminar")}Eliminar</button>
       </div>
       ` : ''}
       ` : ''}
@@ -3762,6 +3928,16 @@
   function wireTrabajoSelector(el){
     const kind = state.mode;
     const currentName = state.current[kind];
+    const filtroInput = el.querySelector('#groupFilterInput');
+    if(filtroInput){
+      filtroInput.addEventListener('input', () => {
+        const termino = filtroInput.value.trim().toLowerCase();
+        el.querySelectorAll('#groupSelect option').forEach(op=>{
+          if(!op.value){ op.style.display = ''; return; } // la opción vacía siempre visible
+          op.style.display = op.textContent.toLowerCase().includes(termino) ? '' : 'none';
+        });
+      });
+    }
     el.querySelector('#groupSelect').addEventListener('change', e => {
       const [pickedKind, pickedName] = e.target.value.split('::');
       if(!pickedKind) return;
@@ -3810,7 +3986,7 @@
 
   function renderScannerZone(){
     const zone = $('#scannerZone');
-    if(state.mode === 'mantenimiento'){ zone.innerHTML = ''; return; } // aquí no hace falta escanear nada
+    if(state.mode === 'mantenimiento' || state.mode === 'resumen'){ zone.innerHTML = ''; return; } // aquí no hace falta escanear nada
     const groupKind = (state.mode==='montaje' || state.mode==='proyecto') ? state.mode : null;
     const currentName = groupKind ? state.current[groupKind] : null;
     const currentGroup = currentName ? findGroup(groupKind, currentName) : null;
@@ -3989,7 +4165,7 @@
           <span class="stock-loc ${m.location?'set':'unset'}">${esc(m.location) || 'Sin ubicar'}</span>
           ${m.categoria ? `<span class="stock-loc set">Cat: ${esc(m.categoria)}</span>` : ''}
           <span class="stock-qty ${m.qty>0?'ok':'low'}">${m.qty}</span>
-          <button class="cam-btn" style="padding:9px 14px; font-size:13px; min-height:44px;" data-edit-btn="${m.id}">Editar</button>
+          <button class="cam-btn" style="padding:9px 14px; font-size:13px; min-height:44px;" data-edit-btn="${m.id}">${iconoBoton("editar")}Editar</button>
           <button class="cam-btn" style="padding:9px 14px; font-size:13px; min-height:44px;" data-qty-btn="${m.id}">Cambiar cantidad</button>
         </div>
       </div>
@@ -4206,7 +4382,7 @@
           </div>
           <div class="row-actions">
             <span class="stock-qty ${estado}">${dias<0?'Vencida: ':''}${b.expira}</span>
-            <button class="btn-return" style="padding:9px 14px; font-size:13px; min-height:44px;" data-bobina-del="${b.id}">Eliminar</button>
+            <button class="btn-return" style="padding:9px 14px; font-size:13px; min-height:44px;" data-bobina-del="${b.id}">${iconoBoton("eliminar")}Eliminar</button>
           </div>
         </div>
       `;
@@ -4322,6 +4498,47 @@
     });
   }
 
+  function renderResumenMain(){
+    if(state.mode !== 'resumen') return;
+    const el = $('#mainList');
+    const esTaller = getUserRole() === 'taller';
+    const bajoStock = getLowStockItems();
+    const bobinasExp = getExpiringBobinas();
+    const sinLeer = state.notifications.filter(n => !n.leida).length;
+    const ordenesActivas = state.groups.montaje.filter(g=>g.status!=='finalizado').length + state.groups.proyecto.filter(g=>g.status!=='finalizado').length;
+    const mantenimientoPendiente = getMantenimientoPendiente();
+    const mantAtrasadas = mantenimientoPendiente.filter(m=>m.estado==='atrasada').length;
+
+    const tarjeta = (color, titulo, num, detalle, modoDestino) => `
+      <div class="panel" style="border-left:4px solid ${color}; cursor:pointer;" data-ir-a="${modoDestino}">
+        <p class="panel-title" style="margin-bottom:2px;">${titulo}</p>
+        <div style="display:flex; align-items:baseline; gap:8px;">
+          <span style="font-size:26px; font-weight:800; color:${color}; font-family:ui-monospace,monospace;">${num}</span>
+          <span style="font-size:12px; color:var(--text-faint);">${detalle}</span>
+        </div>
+      </div>
+    `;
+
+    el.innerHTML = `
+      <div style="margin-bottom:12px;">
+        <p style="font-size:12px; color:var(--text-faint); margin:0;">Lo más urgente de un vistazo — toca cualquier tarjeta para ir directo ahí.</p>
+      </div>
+      ${esTaller ? '' : tarjeta(bajoStock.length||bobinasExp.length ? 'var(--danger)' : 'var(--success)', 'Almacén', bajoStock.length, bajoStock.length===1?'material con stock bajo':'materiales con stock bajo', 'almacen')}
+      ${(!esTaller && bobinasExp.length) ? tarjeta('var(--warning)', 'Bobinas', bobinasExp.length, bobinasExp.length===1?'a punto de expirar':'a punto de expirar', 'almacen') : ''}
+      ${tarjeta(sinLeer ? 'var(--accent)' : 'var(--success)', 'Trabajo', sinLeer, (sinLeer===1?'aviso sin leer':'avisos sin leer')+' · '+ordenesActivas+' orden(es) activa(s)', 'trabajo')}
+      ${tarjeta(state.pedidoItems.length ? 'var(--accent)' : 'var(--success)', 'Pedido', state.pedidoItems.length, state.pedidoItems.length===1?'línea pendiente':'líneas pendientes', 'pedido')}
+      ${state.vehiculos.length ? tarjeta(mantAtrasadas ? 'var(--danger)' : mantenimientoPendiente.length ? 'var(--warning)' : 'var(--success)', 'Mantenimiento', mantenimientoPendiente.length, mantAtrasadas?mantAtrasadas+' atrasada(s)':'revisión(es) pendiente(s)', 'mantenimiento') : ''}
+    `;
+    el.querySelectorAll('[data-ir-a]').forEach(card=>{
+      card.addEventListener('click', ()=>{
+        if(esTaller && card.dataset.irA === 'almacen') return; // por si acaso, aunque no se le muestre la tarjeta
+        state.mode = card.dataset.irA === 'trabajo' ? ultimoKindTrabajo : card.dataset.irA;
+        saveAppState();
+        render();
+      });
+    });
+  }
+
   function renderMantenimientoMain(){
     if(state.mode !== 'mantenimiento') return;
     const el = $('#mainList');
@@ -4357,14 +4574,14 @@
       <div class="project-bar" style="margin-top:0;">
         <label for="kmActualInput" style="font-size:12px; font-weight:700; color:var(--text-faint); white-space:nowrap;">Km actuales:</label>
         <input type="number" id="kmActualInput" value="${kmActual}" min="0" style="flex:1;">
-        <button class="cam-btn" id="editVehiculoBtn" style="flex:none; padding:9px 14px; min-height:auto;">Editar</button>
+        <button class="cam-btn" id="editVehiculoBtn" style="flex:none; padding:9px 14px; min-height:auto;">${iconoBoton("editar")}Editar</button>
         <button class="btn-return" id="delVehiculoBtn" style="flex:none; padding:9px 14px; min-height:auto;">Eliminar vehículo</button>
       </div>
 
       <div class="panel">
         <p class="panel-title">Resumen</p>
         <div class="stat-row"><span>Atrasadas</span><span class="num" style="color:var(--danger);">${nAtrasadas}</span></div>
-        <div class="stat-row"><span>Pronto</span><span class="num" style="color:#D89A2A;">${nPronto}</span></div>
+        <div class="stat-row"><span>Pronto</span><span class="num" style="color:var(--warning);">${nPronto}</span></div>
         <div class="stat-row"><span>Al día</span><span class="num" style="color:var(--success);">${nOk}</span></div>
       </div>
 
@@ -4478,7 +4695,7 @@
 
   function filaTareaMantenimiento(t){
     const c = t.calc;
-    const color = c.estado==='atrasada' ? 'var(--danger)' : c.estado==='pronto' ? '#D89A2A' : 'var(--success)';
+    const color = c.estado==='atrasada' ? 'var(--danger)' : c.estado==='pronto' ? 'var(--warning)' : 'var(--success)';
     const texto = c.estado==='atrasada' ? 'Atrasada' : c.estado==='pronto' ? 'Pronto' : 'Al día';
     const detalles = [];
     if(t.intervaloKm) detalles.push('cada '+t.intervaloKm.toLocaleString('es-ES')+' km');
@@ -4501,7 +4718,7 @@
         </div>
         <div style="display:flex; flex-direction:column; gap:4px; flex:none;">
           <button class="cam-btn" data-hecho-tarea-id="${t.id}" style="padding:6px 10px; font-size:11px; min-height:auto;">Hecho</button>
-          <button class="btn-return" data-del-tarea-id="${t.id}" style="padding:6px 10px; font-size:11px; min-height:auto;">Eliminar</button>
+          <button class="btn-return" data-del-tarea-id="${t.id}" style="padding:6px 10px; font-size:11px; min-height:auto;">${iconoBoton("eliminar")}Eliminar</button>
         </div>
       </div>
     `;
@@ -4633,7 +4850,7 @@
       </div>
       <div class="scanner-row">
         <button class="btn-return" id="dCancelar" style="flex:1;">Cancelar</button>
-        <button class="btn primary" id="dGuardar" style="flex:1;">Guardar</button>
+        <button class="btn primary" id="dGuardar" style="flex:1;">${iconoBoton("guardar")}Guardar</button>
       </div>
     `;
     overlay.style.display = 'flex';
@@ -4676,7 +4893,7 @@
         <div style="display:flex; gap:6px; padding:10px 14px; border-top:1px solid var(--border);">
           <input type="text" id="chatMensajeInput" placeholder="Describe qué hace falta pedir…" style="flex:2; min-width:0;">
           <input type="number" id="chatCantidadInput" placeholder="Uds" min="1" value="1" style="flex:none; width:64px;">
-          <button class="btn primary" id="chatEnviarBtn" style="width:auto; flex:none;">Enviar</button>
+          <button class="btn primary" id="chatEnviarBtn" style="width:auto; flex:none;">${iconoBoton("enviar")}Enviar</button>
         </div>
       </div>
     ` : `
@@ -4783,7 +5000,7 @@
           <div style="display:flex; gap:6px; padding:10px 14px; border-top:1px solid var(--border);">
             <input type="text" id="chatMensajeInput" placeholder="Describe lo que hace falta…" style="flex:2; min-width:0;">
             <input type="number" id="chatCantidadInput" placeholder="Uds" min="1" value="1" style="flex:none; width:64px;">
-            <button class="btn primary" id="chatEnviarBtn" style="width:auto; flex:none;">Enviar</button>
+            <button class="btn primary" id="chatEnviarBtn" style="width:auto; flex:none;">${iconoBoton("enviar")}Enviar</button>
           </div>
         </div>
       `;
@@ -4957,7 +5174,7 @@
                 <div style="font-size:11px; color:var(--text-faint); margin-top:2px;">${d.fecha} · ${d.paginas} página(s)</div>
               </div>
               <button class="cam-btn" data-ver-doc="${d.id}" style="padding:6px 10px; font-size:11px; min-height:auto;">Ver</button>
-              <button class="btn-return" data-del-doc="${d.id}" style="padding:6px 10px; font-size:11px; min-height:auto;">Eliminar</button>
+              <button class="btn-return" data-del-doc="${d.id}" style="padding:6px 10px; font-size:11px; min-height:auto;">${iconoBoton("eliminar")}Eliminar</button>
             </div>
           `).join('') : `<div class="empty-state">Todavía no hay ningún documento escaneado para esta orden/proyecto.</div>`}
           <div style="padding:12px 14px;">
@@ -5216,6 +5433,46 @@
           </div>` : '<p style="font-size:11.5px; color:var(--text-faint); margin-top:8px;">Todavía no hay ninguna en la lista.</p>'}
         </div>
 
+        <div class="panel">
+          <p class="panel-title">Lista rápida (Trabajo)</p>
+          <p style="font-size:11.5px; color:var(--text-faint); margin:0 0 8px 0;">Materiales frecuentes para elegir de un vistazo junto al chat de cualquier orden o proyecto.</p>
+          <div class="manual-stock-form" style="margin-top:0;">
+            <input type="text" id="nuevoRapidoCodigo" placeholder="Código (opcional)">
+            <input type="text" id="nuevoRapidoNombre" placeholder="Nombre a mostrar">
+            <button class="cam-btn" id="addRapidoBtn" style="flex:none;">+ Añadir</button>
+          </div>
+          ${state.materialesRapidos.length ? `
+          <div style="margin-top:10px; max-height:160px; overflow-y:auto;">
+            ${state.materialesRapidos.map(m => `
+              <div style="display:flex; justify-content:space-between; align-items:center; padding:5px 0; border-bottom:1px dashed var(--border); font-size:12.5px;">
+                <span>${esc(m.nombre)}${m.codigo?' <span style="color:var(--text-faint);">('+esc(m.codigo)+')</span>':''}</span>
+                <button class="btn-return" data-rapido-del="${m.id}" style="padding:4px 9px; font-size:10.5px; min-height:auto;">Quitar</button>
+              </div>
+            `).join('')}
+          </div>` : '<p style="font-size:11.5px; color:var(--text-faint); margin-top:8px;">Todavía no hay ningún material en la lista.</p>'}
+        </div>
+
+        ${hasFirebase ? (()=>{
+          const sinConfirmar = state.catalog.filter(m => !m.origenA3);
+          return `
+          <div class="panel">
+            <p class="panel-title">Salud de datos frente a A3</p>
+            <div class="stat-row"><span>Artículos confirmados en A3</span><span class="num" style="color:var(--success);">${state.catalog.length - sinConfirmar.length}</span></div>
+            <div class="stat-row"><span>Dados de alta a mano, sin confirmar</span><span class="num" style="color:${sinConfirmar.length?'var(--warning)':'var(--success)'};">${sinConfirmar.length}</span></div>
+            ${sinConfirmar.length ? `
+            <p style="font-size:11.5px; color:var(--text-faint); margin:8px 0;">Su código todavía no ha llegado desde A3 — puede ser un artículo nuevo pendiente de dar de alta allí, un código con una errata, o un duplicado.</p>
+            <div style="max-height:180px; overflow-y:auto;">
+              ${sinConfirmar.slice(0,30).map(m => `
+                <div style="padding:5px 0; border-bottom:1px dashed var(--border); font-size:12px;">
+                  <span style="font-weight:700;">${esc(m.code)}</span> — ${esc(m.desc)}
+                </div>
+              `).join('')}
+              ${sinConfirmar.length > 30 ? `<p style="font-size:11px; color:var(--text-faint); margin-top:6px;">… y ${sinConfirmar.length-30} más.</p>` : ''}
+            </div>
+            ` : ''}
+          </div>`;
+        })() : ''}
+
         ${(state.groups.montaje.length || state.groups.proyecto.length) ? `
         <div class="panel">
           <p class="panel-title">Histórico general</p>
@@ -5280,6 +5537,16 @@
       el.querySelectorAll('[data-ubicacion-del]').forEach(btn=>{
         btn.addEventListener('click', ()=> removeUbicacion(btn.dataset.ubicacionDel));
       });
+      const addRapidoBtn = $('#addRapidoBtn');
+      const nuevoRapidoCodigo = $('#nuevoRapidoCodigo');
+      const nuevoRapidoNombre = $('#nuevoRapidoNombre');
+      if(addRapidoBtn) addRapidoBtn.addEventListener('click', ()=>{
+        agregarMaterialRapido(nuevoRapidoCodigo.value, nuevoRapidoNombre.value);
+        nuevoRapidoCodigo.value = ''; nuevoRapidoNombre.value = '';
+      });
+      el.querySelectorAll('[data-rapido-del]').forEach(btn=>{
+        btn.addEventListener('click', ()=> quitarMaterialRapido(btn.dataset.rapidoDel));
+      });
       const searchInput = $('#catalogSearch');
       const debouncedStockSearch = debounce(()=> renderStockMain(), 220);
       if(searchInput) searchInput.addEventListener('input', e=>{
@@ -5339,12 +5606,14 @@
         ${proximas.length ? `
         <div class="panel">
           <p class="panel-title">Próximas revisiones</p>
-          ${proximas.map(t => `<div class="stat-row"><span>${esc(t.nombre)}</span><span class="num" style="color:${t.calc.estado==='atrasada'?'var(--danger)':'#D89A2A'};">${t.calc.estado==='atrasada'?'Atrasada':'Pronto'}</span></div>`).join('')}
+          ${proximas.map(t => `<div class="stat-row"><span>${esc(t.nombre)}</span><span class="num" style="color:${t.calc.estado==='atrasada'?'var(--danger)':'var(--warning)'};">${t.calc.estado==='atrasada'?'Atrasada':'Pronto'}</span></div>`).join('')}
         </div>
         ` : ''}
       `;
       return;
     }
+
+    if(state.mode === 'resumen'){ el.innerHTML = ''; return; } // ya está todo en el contenido principal
 
     // Montaje / Proyecto side panel
     const target = currentTarget();

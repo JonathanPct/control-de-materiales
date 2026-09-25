@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Migración Tecnomat: Firebase → Supabase</title>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<style>
+  body{font-family:-apple-system,sans-serif; background:#17181B; color:#ECEEF2; max-width:640px; margin:0 auto; padding:28px 20px;}
+  h1{font-size:19px;}
+  p{font-size:14px; line-height:1.5; color:#B0B3BB;}
+  label{display:block; font-size:12.5px; color:#9497A1; margin:14px 0 5px;}
+  input{width:100%; box-sizing:border-box; background:#262931; border:1px solid #3A3D45; color:#ECEEF2; padding:10px 12px; border-radius:7px; font-size:14px;}
+  button{margin-top:18px; width:100%; background:#E8862D; color:#fff; border:none; padding:12px; border-radius:7px; font-size:15px; font-weight:600; cursor:pointer;}
+  button:disabled{opacity:.5; cursor:default;}
+  #log{margin-top:20px; background:#1F2126; border:1px solid #3A3D45; border-radius:8px; padding:14px; font-family:ui-monospace,monospace; font-size:12.5px; white-space:pre-wrap; max-height:400px; overflow-y:auto;}
+  .ok{color:#48A57C;} .err{color:#D8534F;} .info{color:#9497A1;}
+</style>
+</head>
+<body>
+  <h1>Migración: Firebase → Supabase</h1>
+  <p>Copia todo lo que tengas guardado en Firebase (stock, órdenes, chat, pedidos, avisos...) a tu proyecto nuevo de Supabase. Se usa una sola vez, desde este mismo navegador — no toca nada de Firebase, solo lee de ahí y escribe en Supabase.</p>
+
+  <label for="supaUrl">Project URL de Supabase</label>
+  <input type="text" id="supaUrl" placeholder="https://xxxxxxxx.supabase.co">
+
+  <label for="supaKey">Clave anon de Supabase</label>
+  <input type="text" id="supaKey" placeholder="eyJhbGciOi...">
+
+  <button id="migrarBtn">Empezar la migración</button>
+
+  <div id="log"></div>
+
+<script>
+  // configuración real del proyecto de Firebase de Tecnomat — la misma que ya
+  // llevaba el index.html antes de pasar a Supabase, solo para leer de aquí
+  const firebaseConfig = {
+    apiKey: "AIzaSyDIsRvCzSJeQ0ftK9DhMl8SAVPBlx9IKEc",
+    authDomain: "almacenamiento-datos-40e38.firebaseapp.com",
+    projectId: "almacenamiento-datos-40e38",
+    storageBucket: "almacenamiento-datos-40e38.firebasestorage.app",
+    messagingSenderId: "901796174695",
+    appId: "1:901796174695:web:767991d98b3383c186edc2"
+  };
+  const FIRESTORE_COLLECTION = 'tecnomat_materiales';
+
+  const logEl = document.getElementById('log');
+  function log(msg, tipo){
+    const linea = document.createElement('div');
+    if(tipo) linea.className = tipo;
+    linea.textContent = msg;
+    logEl.appendChild(linea);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  document.getElementById('migrarBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('migrarBtn');
+    const supaUrl = document.getElementById('supaUrl').value.trim();
+    const supaKey = document.getElementById('supaKey').value.trim();
+    if(!supaUrl || !supaKey){ log('Rellena la URL y la clave de Supabase antes de empezar.', 'err'); return; }
+
+    btn.disabled = true;
+    logEl.innerHTML = '';
+    log('Conectando con Firebase…', 'info');
+
+    try{
+      firebase.initializeApp(firebaseConfig);
+      const db = firebase.firestore();
+      const snapshot = await db.collection(FIRESTORE_COLLECTION).get();
+      log('Encontrados ' + snapshot.size + ' documento(s) en Firebase.', 'info');
+
+      if(snapshot.empty){
+        log('No hay nada que migrar — el proyecto de Firebase está vacío.', 'info');
+        btn.disabled = false;
+        return;
+      }
+
+      log('Conectando con Supabase…', 'info');
+      const sb = window.supabase.createClient(supaUrl, supaKey);
+
+      let hechos = 0, fallidos = 0;
+      for(const doc of snapshot.docs){
+        const clave = doc.id;
+        const datos = doc.data();
+        const valor = datos && ('value' in datos) ? datos.value : datos;
+        const { error } = await sb.from('tecnomat_kv').upsert({
+          key: clave,
+          value: valor,
+          updated_at: new Date().toISOString()
+        });
+        if(error){
+          log('ERROR ' + clave + ' — ' + error.message, 'err');
+          fallidos++;
+        }else{
+          log('OK ' + clave, 'ok');
+          hechos++;
+        }
+      }
+
+      log('', null);
+      log('Migración terminada: ' + hechos + ' copiado(s) correctamente' + (fallidos ? ', ' + fallidos + ' con error (revísalos arriba)' : '') + '.', fallidos ? 'err' : 'ok');
+      log('Firebase no se ha tocado — tus datos siguen ahí igual que antes.', 'info');
+    }catch(e){
+      log('Error: ' + e.message, 'err');
+    }
+    btn.disabled = false;
+  });
+</script>
+</body>
+</html>
