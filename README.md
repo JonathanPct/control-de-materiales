@@ -13,6 +13,7 @@ El objetivo era tener una herramienta de almacén que no necesitara servidor pro
 - **pdf.js** para extraer texto de PDFs al crear órdenes desde archivo (análisis heurístico línea a línea).
 - **JsBarcode** para generar e imprimir etiquetas de código de barras.
 - **jsPDF** para juntar las páginas escaneadas de un documento en un único PDF.
+- **Tesseract.js** para reconocer el texto de un documento escaneado, directamente en el navegador, sin servidor.
 - **Supabase (Postgres + Authentication + tiempo real)**, opcional, para guardado compartido en la nube con login — ver "Migrar a otro hosting o base de datos" si en algún momento se cambia de proveedor.
 - **EmailJS**, opcional, para mandar avisos por correo sin backend propio.
 - **`BarcodeDetector`** (API nativa del navegador) para escanear con la cámara del móvil.
@@ -124,13 +125,13 @@ Todo lo anterior (banner, sonido, notificación del sistema) solo funciona con l
 
 ## 5. Roles: Almacén y Taller
 
-Quien entra con la cuenta **`taller@tecnomat.es`** no ve la pestaña de Almacén, ni "Finalizar"/"Eliminar" en una orden, ni el botón "Asociar" en el chat — solo puede trabajar desde Trabajo y Pedido. Cualquier otra cuenta ve todo.
+Quien entra con la cuenta **`taller@tecnomat.es`** solo ve las pestañas **Trabajo** y **Pedido** — Almacén, Resumen y Mantenimiento son exclusivas de Almacén, y tampoco ve el botón "Asociar" en el chat. **Sí puede finalizar/reactivar** una orden o proyecto (con confirmación siempre antes de hacerlo, para evitar toques accidentales), pero no puede eliminarla — eso sigue siendo solo de Almacén. Cualquier otra cuenta ve todo.
 
 **Esto es una restricción de interfaz**, no de seguridad real — oculta botones y redirige, pero no impide técnicamente que alguien con conocimientos edite datos saltándose la pantalla. La restricción real (a nivel de base de datos) se configura con Row Level Security en Supabase, ver sección 3.
 
 ## 6. Resumen (pantalla de inicio)
 
-Al abrir la app, siempre se aterriza aquí primero (no en la última sección usada) — un vistazo con lo más urgente antes de entrar a trabajar: stock bajo, bobinas a punto de expirar, avisos sin leer, líneas pendientes en Pedido, y revisiones de Mantenimiento atrasadas o próximas. Cada tarjeta se puede tocar para ir directo a esa sección. Taller ve las mismas tarjetas salvo la de Almacén, que no le corresponde. La orden, proyecto o vehículo que se estuviera viendo antes se recuerda igual, así que al entrar a Trabajo o Mantenimiento desde una tarjeta se sigue justo donde se dejó.
+Al abrir la app, siempre se aterriza aquí primero (no en la última sección usada) — un vistazo con lo más urgente antes de entrar a trabajar: stock bajo, bobinas a punto de expirar, avisos sin leer, líneas pendientes en Pedido, y revisiones de Mantenimiento atrasadas o próximas. Cada tarjeta se puede tocar para ir directo a esa sección. **Exclusiva de Almacén** — Taller no ve esta pestaña, entra directo a Trabajo. La orden o proyecto que se estuviera viendo antes se recuerda igual, así que al entrar a Trabajo desde una tarjeta se sigue justo donde se dejó.
 
 ## 7. Trabajo (Montaje/Venta y Proyecto) y su chat
 
@@ -173,7 +174,7 @@ Sirve para pedir material que falta en el almacén (por ejemplo, para reponer st
 
 ## 9. Mantenimiento
 
-Pestaña para llevar el mantenimiento de los vehículos de la empresa (furgonetas, coches de reparto...), independiente del resto de secciones — no descuenta stock ni tiene escáner, es solo un seguimiento de fechas y kilometraje.
+**Exclusiva de Almacén** — Taller no ve esta pestaña. Pestaña para llevar el mantenimiento de los vehículos de la empresa (furgonetas, coches de reparto...), independiente del resto de secciones — no descuenta stock ni tiene escáner, es solo un seguimiento de fechas y kilometraje.
 
 - Se pueden dar de alta **varios vehículos** (matrícula, marca, modelo, año, kilómetros actuales), cambiando entre ellos con un desplegable, con botón para editarlos o eliminarlos. Se identifican por matrícula, como es natural en una flota de empresa.
 - **Mecánico habitual**: nombre y contacto (teléfono o email) por vehículo, visibles en el panel lateral.
@@ -214,10 +215,21 @@ Si una línea no coincide con nada del stock, se da de alta automáticamente com
 
 Dentro de Trabajo, cada orden/proyecto tiene su propio panel de "Documentos escaneados" — útil para digitalizar un listado de material en papel, un albarán, o cualquier papel que llegue y haya que guardar junto a esa orden en concreto.
 
-- **"Escanear documento"** abre la cámara del móvil. Se puede capturar **varias páginas seguidas** (cada una queda como una miniatura, y se puede tocar una para quitarla antes de terminar).
+- **"Escanear documento"** abre la cámara del móvil, pidiendo resolución alta (hasta 2560×1440) a propósito, para que el texto del papel escaneado se lea bien y no salga borroso. Se puede capturar **varias páginas seguidas** (cada una queda como una miniatura, y se puede tocar una para quitarla antes de terminar).
 - Al pulsar **"Convertir a PDF"**, todas las páginas capturadas se juntan en un único PDF, que queda guardado y enlazado a esa orden/proyecto — no a ninguna otra.
-- Desde el propio panel se puede **"Ver"** el PDF en una pestaña nueva, o **"Eliminar"** el documento.
+- Desde el propio panel se puede **"Ver"** el PDF en una pestaña nueva, o **"Eliminar"** el documento. Al verlo, se convierte primero en un archivo real (Blob) antes de abrirlo — los navegadores de escritorio bloquean por seguridad abrir directamente el enlace largo con el que se guarda el PDF.
 - Se guardan hasta 20 documentos por orden/proyecto; a partir de ahí, los más antiguos se van sustituyendo.
+
+### Reconocer material del documento (OCR)
+
+Además de convertir las páginas capturadas en PDF, se puede pulsar **"Reconocer material"** para que la app lea el texto del documento (reconocimiento de texto en el propio navegador, sin servidor) y ayude a darlo por **Servido** en esa orden, como si ya se hubiera entregado — útil para digitalizar un albarán de proveedor que ya se ha usado.
+
+- Antes de reconocer, hay que elegir el **proveedor** (JULMATIC, INOXPA o BIONET) — aplica a todo el documento.
+- **La app nunca decide sola si una línea es un artículo del stock o no** — reconoce el texto y lo enseña, línea a línea, en el mismo orden en que aparece en la hoja, para que la persona escriba (o confirme) el código real de cada una antes de aplicar nada.
+- Si una línea ya se relacionó antes con un código (en cualquier orden anterior), la app lo recuerda y lo sugiere solo — sigue siendo editable, no se aplica sin revisar.
+- Al confirmar: las líneas con un código válido **se sirven de verdad y descuentan stock real**. Las que se dejen en blanco **no crean ningún artículo nuevo** — pasan a un apartado de **"Material faltante"** dentro de esa misma orden, visible para cualquiera que la abra, con la cantidad, el proveedor y la fecha.
+- Desde "Material faltante" se puede **"Pedir"** esa línea (la manda a la solicitud pendiente de esa orden, como cualquier otro pedido, para reclamarla formalmente) o **"Quitar"** cuando ya no haga falta.
+- El reconocimiento de texto es heurístico, no es perfecto: funciona mejor con texto impreso claro y buena luz. Con letra manuscrita o fotos borrosas puede no acertar ninguna línea — en ese caso, mejor añadir el material a mano desde el chat.
 
 ## 13. Instalar la app en el móvil (PWA)
 

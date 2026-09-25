@@ -890,6 +890,7 @@
   <div id="pedidoNotifBanner"></div>
   <div id="offlineBanner" style="display:none;"></div>
   <datalist id="ubicacionesList"></datalist>
+  <datalist id="catalogCodesList"></datalist>
 
   <div id="globalSearchZone"></div>
 
@@ -912,12 +913,23 @@
 <div id="docScanOverlay">
   <video id="docScanVideo" autoplay playsinline muted></video>
   <div class="cam-status" id="docScanStatus">Encuadra la página y pulsa "Capturar"</div>
+  <select id="docScanProveedor" style="max-width:220px;">
+    <option value="">— Proveedor del material —</option>
+    <option value="JULMATIC">JULMATIC</option>
+    <option value="INOXPA">INOXPA</option>
+    <option value="BIONET">BIONET</option>
+  </select>
   <div id="docScanThumbs" style="display:flex; gap:6px; flex-wrap:wrap; max-width:90vw; justify-content:center;"></div>
-  <div style="display:flex; gap:8px;">
+  <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:center;">
     <button class="btn" style="width:auto; padding:8px 18px;" id="docScanCapturarBtn">Capturar página</button>
     <button class="btn primary" style="width:auto; padding:8px 18px;" id="docScanFinalizarBtn" disabled>Convertir a PDF</button>
+    <button class="btn primary" style="width:auto; padding:8px 18px;" id="docScanReconocerBtn" disabled>Reconocer material</button>
   </div>
   <button class="btn ghost-danger" style="width:auto;padding:8px 20px;" id="docScanCerrarBtn">Cancelar</button>
+</div>
+
+<div id="ocrPlanOverlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.7); align-items:center; justify-content:center; z-index:999; padding:16px;">
+  <div class="panel" id="ocrPlanCard" style="max-width:520px; width:100%; max-height:88vh; overflow-y:auto;"></div>
 </div>
 
 <div id="editItemOverlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.7); align-items:center; justify-content:center; z-index:998; padding:16px;">
@@ -993,12 +1005,12 @@
   const supabaseAnonKey = 'TU_SUPABASE_ANON_KEY';
   const KV_TABLE = 'tecnomat_kv';
   const firebaseConfig = {
-    apiKey: 'AIzaSyDIsRvCzSJeQ0ftK9DhMl8SAVPBlx9IKEc',
-    authDomain: 'almacenamiento-datos-40e38.firebaseapp.com',
-    projectId: 'almacenamiento-datos-40e38',
-    storageBucket: 'almacenamiento-datos-40e38.firebasestorage.app',
-    messagingSenderId: '901796174695',
-    appId: '1:901796174695:web:767991d98b3383c186edc2'
+    apiKey: 'TU_API_KEY',
+    authDomain: 'TU_PROYECTO.firebaseapp.com',
+    projectId: 'TU_PROYECTO',
+    storageBucket: 'TU_PROYECTO.appspot.com',
+    messagingSenderId: '000000000000',
+    appId: '1:000000000000:web:xxxxxxxxxxxxxxxxxxxxxx'
   };
   const FIRESTORE_COLLECTION = 'tecnomat_materiales';
   // ============================================================
@@ -1438,6 +1450,7 @@
     tareasMantenimiento: [], // [{id, vehiculoId, nombre, intervaloKm, intervaloMeses, ultimoKm, ultimaFecha}]
     vehiculoActualId: null,
     materialesRapidos: [], // [{id, codigo, nombre, orden}] — lista fija para elegir de un vistazo, junto al chat
+    ocrAprendizaje: {}, // {"texto reconocido en minúsculas": "CODIGO"} — se rellena cada vez que confirmas una relación al reconocer un documento
     pedidoChat: [],           // [{id, texto, ts, tsMs}] - el mismo chat que en Trabajo, pero para Pedido
     pendingDelivery: null,    // {items:[...], recipientName} - el pedido ya congelado, esperando la firma
     deliveries: [],            // [{id, items, recipientName, signature, ts, tsMs}] - entregas ya firmadas
@@ -1470,7 +1483,7 @@
   const $ = sel => document.querySelector(sel);
   const uid = () => Date.now().toString(36)+Math.random().toString(36).slice(2,7);
   // forma por defecto de los datos de una orden/proyecto
-  function emptyGroupData(){ return {servido:[], devuelto:[], pendiente:{requesterName:'', items:[]}, chat:[], documentos:[]}; }
+  function emptyGroupData(){ return {servido:[], devuelto:[], pendiente:{requesterName:'', items:[]}, chat:[], documentos:[], materialesFaltantes:[]}; }
 
   // ejemplos de ficha, no referencias reales — de ahí el prefijo "EJEMPLO-"
   const nowStr = () => new Date().toLocaleString('es-ES');
@@ -1485,6 +1498,26 @@
     enviar: '<path d="M2 8 14 2 8 14l-1.5-4.5L2 8Z"/>',
     guardar: '<path d="M3 3h9l2 2v9a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M5 3v4h6V3M5 10h6"/>',
   };
+  // los navegadores de escritorio (sobre todo Chrome/Edge) bloquean por seguridad
+  // abrir directamente un enlace "data:" en una pestaña nueva — por eso el PDF
+  // escaneado "no se abría en PC". Aquí se guarda como "data:" (así se puede meter
+  // en el guardado normal de la app), pero para VERLO se convierte antes en un
+  // archivo real de verdad (un Blob), que sí se puede abrir sin ese bloqueo
+  function abrirDataUrlComoBlob(dataUrl){
+    try{
+      const [cabecera, base64] = dataUrl.split(',');
+      const mime = cabecera.match(/data:(.*?);base64/)[1];
+      const binario = atob(base64);
+      const bytes = new Uint8Array(binario.length);
+      for(let i=0; i<binario.length; i++) bytes[i] = binario.charCodeAt(i);
+      const blob = new Blob([bytes], {type: mime});
+      const blobUrl = URL.createObjectURL(blob);
+      window.open(blobUrl, '_blank');
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60000); // de sobra para que se abra
+    }catch(e){
+      showStatus('No se pudo abrir el documento: '+e.message);
+    }
+  }
   function iconoBoton(nombre){
     return `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" style="width:13px; height:13px; flex:none; opacity:.85; vertical-align:-2px; margin-right:5px;">${ICONOS[nombre]||''}</svg>`;
   }
@@ -1611,10 +1644,10 @@
   }
 
   async function loadAll(){
-    const [catalog, movements, groupsMontaje, groupsProyecto, oldLists, oldProjects, appState, bobinas, settings, alerts, pedidoItems, movementsArchive, deliveries, notifications, ubicaciones, deliveriesArchive, pedidoChat, pedidoRequesterName, vehiculos, tareasMantenimiento] = await Promise.all([
+    const [catalog, movements, groupsMontaje, groupsProyecto, oldLists, oldProjects, appState, bobinas, settings, alerts, pedidoItems, movementsArchive, deliveries, notifications, ubicaciones, deliveriesArchive, pedidoChat, pedidoRequesterName, vehiculos, tareasMantenimiento, ocrAprendizaje] = await Promise.all([
       safeGet('catalog'), safeGet('movements'), safeGet('groups_montaje'), safeGet('groups_proyecto'),
       safeGet('lists'), safeGet('projects'), safeGet('app_state'),
-      safeGet('bobinas'), safeGet('settings'), safeGet('alerts_state'), safeGet('pedido_items'), safeGet('movements_archive'), safeGet('deliveries'), safeGet('notifications'), safeGet('ubicaciones'), safeGet('deliveries_archive'), safeGet('pedido_chat'), safeGet('pedido_requester'), safeGet('vehiculos'), safeGet('tareas_mantenimiento')
+      safeGet('bobinas'), safeGet('settings'), safeGet('alerts_state'), safeGet('pedido_items'), safeGet('movements_archive'), safeGet('deliveries'), safeGet('notifications'), safeGet('ubicaciones'), safeGet('deliveries_archive'), safeGet('pedido_chat'), safeGet('pedido_requester'), safeGet('vehiculos'), safeGet('tareas_mantenimiento'), safeGet('ocr_aprendizaje')
     ]);
     if(catalog) state.catalog = catalog.map(m => ({id:m.id||uid(), code:m.code, desc:m.desc, qty: typeof m.qty==='number'?m.qty:0, location:m.location||'', specs:m.specs||'', marca:m.marca||'', referencia:m.referencia||'', categoria:m.categoria||'', coste:typeof m.coste==='number'?m.coste:0}));
     if(movements) state.movements = movements;
@@ -1625,6 +1658,7 @@
     if(pedidoRequesterName) state.pedidoRequesterName = pedidoRequesterName;
     if(vehiculos) state.vehiculos = vehiculos;
     if(tareasMantenimiento) state.tareasMantenimiento = tareasMantenimiento;
+    if(ocrAprendizaje) state.ocrAprendizaje = ocrAprendizaje;
     if(state.vehiculos.length && !state.vehiculoActualId) state.vehiculoActualId = state.vehiculos[0].id;
     if(deliveries) state.deliveries = deliveries;
     if(notifications) state.notifications = notifications;
@@ -1837,6 +1871,7 @@
   function savePedidoRequester(){ safeSet('pedido_requester', state.pedidoRequesterName); }
   function saveVehiculos(){ safeSet('vehiculos', state.vehiculos); }
   function saveTareasMantenimiento(){ safeSet('tareas_mantenimiento', state.tareasMantenimiento); }
+  function saveOcrAprendizaje(){ safeSet('ocr_aprendizaje', state.ocrAprendizaje); }
 
   const MS_DIA = 86400000;
   function sumarMeses(iso, meses){
@@ -2190,6 +2225,22 @@
       document.head.appendChild(s);
     });
     return jsBarcodePromise;
+  }
+
+  // Tesseract.js (reconocimiento de texto) solo se carga la primera vez que hace
+  // falta reconocer material a partir de un documento escaneado
+  let tesseractPromise = null;
+  function ensureTesseract(){
+    if(typeof Tesseract !== 'undefined') return Promise.resolve();
+    if(tesseractPromise) return tesseractPromise;
+    tesseractPromise = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error('No se pudo cargar el reconocimiento de texto'));
+      document.head.appendChild(s);
+    });
+    return tesseractPromise;
   }
 
   // jsPDF solo se carga la primera vez que hace falta convertir páginas escaneadas a PDF
@@ -2586,9 +2637,10 @@
       if(!existing.itemId) existing.itemId = item.id;
       if(extra.escandalloPedido) existing.escandalloPedido = extra.escandalloPedido;
       if(extra.escandalloPedidoNumero) existing.escandalloPedidoNumero = extra.escandalloPedidoNumero;
+      if(extra.proveedor) existing.proveedor = extra.proveedor;
     }else{
       const now = nowStr();
-      target.servido.unshift({id:uid(), itemId:item.id, code:item.code, desc:item.desc, qty, firstTs:now, ts:now, escandalloPedido: extra.escandalloPedido||'', escandalloPedidoNumero: extra.escandalloPedidoNumero||''});
+      target.servido.unshift({id:uid(), itemId:item.id, code:item.code, desc:item.desc, qty, firstTs:now, ts:now, escandalloPedido: extra.escandalloPedido||'', escandalloPedidoNumero: extra.escandalloPedidoNumero||'', proveedor: extra.proveedor||''});
     }
   }
 
@@ -2959,9 +3011,15 @@
     const seraFinalizado = g.status !== 'finalizado';
     if(seraFinalizado){
       const target = state.groupData[kind+'::'+name];
-      if(target && target.pendiente.items.length){
-        if(!confirm('Todavía hay '+target.pendiente.items.length+' línea(s) en la solicitud pendiente de recoger, sin firmar. Si finalizas ahora, es fácil que se quede olvidada. ¿Finalizar de todos modos?')) return;
-      }
+      const pendientes = target ? target.pendiente.items.length : 0;
+      // siempre se pregunta antes de finalizar, para evitar que un toque sin querer
+      // cierre algo por error — el aviso es más insistente si además queda algo sin firmar
+      const mensaje = pendientes
+        ? 'Todavía hay '+pendientes+' línea(s) en la solicitud pendiente de recoger, sin firmar. Si finalizas ahora, es fácil que se quede olvidada. ¿Finalizar de todos modos?'
+        : '¿Seguro que quieres finalizar "'+name+'"? Se puede reactivar más tarde si hace falta.';
+      if(!confirm(mensaje)) return;
+    }else{
+      if(!confirm('¿Reactivar "'+name+'"? Volverá a aparecer como orden/proyecto activo.')) return;
     }
     g.status = seraFinalizado ? 'finalizado' : 'activo';
     saveGroups(kind);
@@ -3310,6 +3368,13 @@
       const content = await page.getTextContent();
       texto += content.items.map(it => it.str).join(' ') + '\n';
     }
+    return parsearLineasDeTexto(texto);
+  }
+
+  // heurística compartida: de cada línea de texto (venga de un PDF o de un OCR),
+  // intenta sacar "descripción ... cantidad al final" — "mejor esfuerzo", no una
+  // lectura de tabla real
+  function parsearLineasDeTexto(texto){
     const rows = [];
     texto.split('\n').map(l=>l.trim()).filter(Boolean).forEach(line => {
       const m = line.match(/^(.*?)\s+(\d+)\s*(?:uds?\.?|unidades)?$/i);
@@ -3574,7 +3639,12 @@
     renderDocScanThumbs();
     overlay.style.display = 'flex';
     try{
-      docScanStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+      // pido resolución alta a propósito — un documento escaneado se lee mal si la
+      // cámara usa su resolución por defecto (bastante modesta en muchos móviles)
+      docScanStream = await navigator.mediaDevices.getUserMedia({video:{
+        facingMode:'environment',
+        width:{ideal:2560}, height:{ideal:1440}
+      }});
       video.srcObject = docScanStream;
     }catch(e){
       $('#docScanStatus').textContent = 'No se pudo acceder a la cámara: '+e.message;
@@ -3592,12 +3662,13 @@
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     canvas.getContext('2d').drawImage(video, 0, 0);
-    docScanPaginas.push(canvas.toDataURL('image/jpeg', 0.75));
+    docScanPaginas.push(canvas.toDataURL('image/jpeg', 0.85));
     renderDocScanThumbs();
   }
   function renderDocScanThumbs(){
     $('#docScanThumbs').innerHTML = docScanPaginas.map((p,i)=>`<img src="${p}" data-quitar-pagina="${i}" title="Pulsa para quitar esta página">`).join('');
     $('#docScanFinalizarBtn').disabled = docScanPaginas.length === 0;
+    $('#docScanReconocerBtn').disabled = docScanPaginas.length === 0;
     $('#docScanStatus').textContent = docScanPaginas.length
       ? docScanPaginas.length+' página(s) capturada(s) — toca una foto para quitarla'
       : 'Encuadra la página y pulsa "Capturar página"';
@@ -3608,6 +3679,110 @@
       });
     });
   }
+  // OCR del documento escaneado — reconoce el texto de cada página, con el mismo
+  // heurístico que ya usa la lectura de PDF, y deja las líneas para que la persona
+  // decida, una a una, si corresponden a un artículo real del stock o no. La app
+  // nunca decide sola: solo sugiere un código si esa misma línea ya se relacionó
+  // antes con algo (memoria de "ocrAprendizaje"). Lo que se deje sin código al
+  // confirmar pasa a "Material faltante" de esa orden, sin inventarse ningún
+  // artículo nuevo en el stock. No sustituye a "Convertir a PDF" — son dos
+  // acciones independientes sobre las mismas páginas capturadas.
+  let pendingOcrPlan = null; // {plan:[{id, texto, cantidad, codigoSugerido}], proveedor}
+  async function reconocerMaterialDocumento(){
+    if(!docScanPaginas.length) return;
+    const proveedor = $('#docScanProveedor').value;
+    if(!proveedor){ $('#docScanStatus').textContent = 'Elige antes el proveedor del material.'; return; }
+    const target = currentTarget();
+    if(!target) return;
+    $('#docScanStatus').textContent = 'Reconociendo el texto de la página 1 de '+docScanPaginas.length+'…';
+    try{
+      await ensureTesseract();
+      let textoCompleto = '';
+      for(let i=0; i<docScanPaginas.length; i++){
+        $('#docScanStatus').textContent = 'Reconociendo el texto de la página '+(i+1)+' de '+docScanPaginas.length+'…';
+        const { data } = await Tesseract.recognize(docScanPaginas[i], 'spa');
+        textoCompleto += data.text + '\n';
+      }
+      // se conserva el orden tal cual sale en la hoja, para poder revisar línea a
+      // línea comparando con el papel de verdad
+      const filas = parsearLineasDeTexto(textoCompleto);
+      if(!filas.length){
+        $('#docScanStatus').textContent = 'No he podido reconocer ninguna línea con forma de material — prueba con más luz o más cerca.';
+        return;
+      }
+      const plan = filas.map(f => ({
+        id: uid(),
+        texto: f.desc,
+        cantidad: f.qty,
+        codigoSugerido: state.ocrAprendizaje[f.desc.toLowerCase()] || ''
+      }));
+      pendingOcrPlan = {plan, proveedor};
+      cerrarEscanerDocumento();
+      render();
+    }catch(e){
+      $('#docScanStatus').textContent = 'Error reconociendo el texto: '+e.message;
+    }
+  }
+  function applyOcrPlan(){
+    if(!pendingOcrPlan) return;
+    const target = currentTarget();
+    if(!target){ pendingOcrPlan = null; render(); return; }
+    const el = $('#mainList');
+    const origen = 'Escaneo de documento — proveedor '+pendingOcrPlan.proveedor;
+    let servidas = 0, faltantes = 0;
+    pendingOcrPlan.plan.forEach(p => {
+      const codigoInput = el.querySelector('[data-ocr-codigo="'+p.id+'"]');
+      const cantidadInput = el.querySelector('[data-ocr-cantidad="'+p.id+'"]');
+      const codigo = codigoInput ? codigoInput.value.trim() : '';
+      const cantidad = Math.max(1, parseInt(cantidadInput ? cantidadInput.value : p.cantidad, 10) || 1);
+      const item = codigo ? findInCatalog(codigo) : null;
+      if(item){
+        // se confirma la relación de verdad — se guarda para sugerirla sola la próxima vez
+        addEntryToTarget(target, item, cantidad, {proveedor: pendingOcrPlan.proveedor});
+        adjustStock(item, cantidad, 'salida', origen);
+        state.ocrAprendizaje[p.texto.toLowerCase()] = item.code;
+        servidas++;
+      }else{
+        // no se ha elegido (o el código no existe) — queda anotado como falta, sin
+        // inventar ningún artículo de stock que no se ha pedido crear
+        target.materialesFaltantes.unshift({id:uid(), descripcion:p.texto, cantidad, proveedor: pendingOcrPlan.proveedor, fecha: nowStr()});
+        faltantes++;
+      }
+    });
+    agregarMensajeChat(target.chat, 'Documento escaneado revisado (proveedor '+pendingOcrPlan.proveedor+'): '+servidas+' servida(s)'+(faltantes?', '+faltantes+' marcada(s) como material faltante':''));
+    saveOcrAprendizaje();
+    persistCurrentTarget();
+    pendingOcrPlan = null;
+    render();
+    showStatus('Añadido a Servido: '+servidas+' línea(s)'+(faltantes?'. Material faltante anotado: '+faltantes+' línea(s)':'')+'.');
+  }
+  function cancelOcrPlan(){
+    pendingOcrPlan = null;
+    render();
+  }
+  function pedirMaterialFaltante(id){
+    const target = currentTarget();
+    if(!target) return;
+    const falta = target.materialesFaltantes.find(f => f.id === id);
+    if(!falta) return;
+    if(!pedirNombreSolicitante(target)) return;
+    // se manda a la solicitud pendiente como cualquier otra petición sin referencia
+    // todavía — Almacén la verá y podrá "Asociar" cuando llegue el material
+    target.pendiente.items.push({id:uid(), itemId:null, code:'', desc:'', referencia:'', textoLibre:falta.descripcion, qty:falta.cantidad, pedido:0, reserva:0});
+    agregarMensajeChat(target.chat, 'Pedido el material faltante: '+falta.descripcion+' ('+falta.cantidad+' uds, proveedor '+falta.proveedor+')');
+    target.materialesFaltantes = target.materialesFaltantes.filter(f => f.id !== id);
+    persistCurrentTarget();
+    render();
+  }
+  function quitarMaterialFaltante(id){
+    const target = currentTarget();
+    if(!target) return;
+    if(!confirm('¿Quitar esta línea de material faltante?')) return;
+    target.materialesFaltantes = target.materialesFaltantes.filter(f => f.id !== id);
+    persistCurrentTarget();
+    render();
+  }
+
   async function finalizarEscaneoDocumento(){
     if(!docScanPaginas.length) return;
     const target = currentTarget();
@@ -3645,11 +3820,12 @@
   }
   $('#docScanCapturarBtn').addEventListener('click', capturarPaginaDocumento);
   $('#docScanFinalizarBtn').addEventListener('click', finalizarEscaneoDocumento);
+  $('#docScanReconocerBtn').addEventListener('click', reconocerMaterialDocumento);
   $('#docScanCerrarBtn').addEventListener('click', cerrarEscanerDocumento);
 
   // ---------- Render ----------
   function render(){
-    if(state.mode === 'almacen' && getUserRole() === 'taller') state.mode = 'montaje'; // taller no entra aquí, ni de rebote
+    if((state.mode === 'almacen' || state.mode === 'resumen' || state.mode === 'mantenimiento') && getUserRole() === 'taller') state.mode = 'montaje'; // taller no entra aquí, ni de rebote
     // si se acaba de entrar en Almacén viniendo de otra sección, vuelve a "Entrada" siempre —
     // así nunca se arrastra un "Salida" que se dejó puesto sin darse cuenta en otro momento
     if(state.mode === 'almacen' && modoAnteriorParaReset !== 'almacen') modoAlmacenScan = 'entrada';
@@ -3688,6 +3864,8 @@
     renderSignatureOverlay();
     const datalistEl = $('#ubicacionesList');
     if(datalistEl) datalistEl.innerHTML = state.ubicaciones.map(u => `<option value="${esc(u)}">`).join('');
+    const catalogDatalistEl = $('#catalogCodesList');
+    if(catalogDatalistEl) catalogDatalistEl.innerHTML = state.catalog.map(m => `<option value="${esc(m.code)}">${esc(m.desc)}</option>`).join('');
   }
 
   // buscador de arriba, funciona en cualquier sección
@@ -3841,7 +4019,7 @@
     const esTaller = getUserRole() === 'taller';
     const enTrabajo = state.mode === 'montaje' || state.mode === 'proyecto';
     const modes = [['resumen','Resumen',''],['trabajo','Trabajo',''],['almacen','Almacén',' (Stock)'],['pedido','Pedido',''],['mantenimiento','Mantenimiento','']]
-      .filter(([k]) => !(esTaller && k==='almacen')); // taller no ve Almacén, ni falta que le hace
+      .filter(([k]) => !(esTaller && (k==='almacen' || k==='resumen' || k==='mantenimiento'))); // taller solo ve Trabajo y Pedido
     bar.innerHTML = modes.map(([k,corto,extra]) =>
       `<button class="mode-btn ${(k==='trabajo'?enTrabajo:state.mode===k)?'active':''}" data-mode="${k}">${corto}<span class="label-extra">${extra}</span></button>`
     ).join('');
@@ -3896,12 +4074,12 @@
           · ${kind==='montaje'?'Montaje':'Proyecto'}
           ${current.tipo ? ' · '+esc(current.tipo) : ''}
         </span>
-        ${getUserRole() === 'taller' ? '' : `<button class="cam-btn" id="toggleMasOpcionesBtn" style="flex:none; padding:4px 10px; font-size:10px; min-height:auto; text-transform:none; letter-spacing:0;">${mostrarMasOpcionesTrabajo?'Ocultar':'Más opciones'}</button>`}
+        <button class="cam-btn" id="toggleMasOpcionesBtn" style="flex:none; padding:4px 10px; font-size:10px; min-height:auto; text-transform:none; letter-spacing:0;">${mostrarMasOpcionesTrabajo?'Ocultar':'Más opciones'}</button>
       </div>
-      ${(mostrarMasOpcionesTrabajo && getUserRole() !== 'taller') ? `
+      ${mostrarMasOpcionesTrabajo ? `
       <div class="project-bar project-bar-inline" style="margin-top:0;">
         <button class="cam-btn" id="toggleStatusBtn" style="flex:1;">${current.status==='finalizado'?'Reactivar':'Finalizar'}</button>
-        <button class="btn-return" id="deleteGroupBtn" style="flex:1;">${iconoBoton("eliminar")}Eliminar</button>
+        ${getUserRole() === 'taller' ? '' : `<button class="btn-return" id="deleteGroupBtn" style="flex:1;">${iconoBoton("eliminar")}Eliminar</button>`}
       </div>
       ` : ''}
       ` : ''}
@@ -4681,7 +4859,7 @@
       });
     }
     el.querySelectorAll('[data-ver-foto]').forEach(img=>{
-      img.addEventListener('click', ()=> window.open(img.src, '_blank'));
+      img.addEventListener('click', ()=> abrirDataUrlComoBlob(img.src));
     });
     el.querySelectorAll('[data-del-foto]').forEach(btn=>{
       btn.addEventListener('click', ()=>{
@@ -5158,6 +5336,44 @@
       `;
     }
 
+    const ocrPlanHtml = pendingOcrPlan ? `
+      <div class="panel" style="border-color:var(--accent); margin-top:14px;">
+        <p class="panel-title">Material reconocido — elige a qué artículo corresponde cada línea (proveedor: ${esc(pendingOcrPlan.proveedor)})</p>
+        <p style="font-size:11.5px; color:var(--text-faint); margin:0 0 10px 0;">Escribe el código si corresponde a algo del stock — se sirve de verdad y descuenta esa cantidad. Si lo dejas en blanco, la línea queda como material faltante en esta orden, sin tocar el stock.</p>
+        <div style="max-height:320px; overflow-y:auto; margin-bottom:10px;">
+          ${pendingOcrPlan.plan.map(p => `
+            <div style="padding:8px 0; border-bottom:1px dashed var(--border);">
+              <div style="font-size:12.5px; margin-bottom:5px;">"${esc(p.texto)}"${p.codigoSugerido ? ' <span style="color:var(--text-faint);">(ya se relacionó antes con '+esc(p.codigoSugerido)+')</span>' : ''}</div>
+              <div class="scanner-row">
+                <input type="text" list="catalogCodesList" placeholder="Código del stock (vacío = falta)" value="${esc(p.codigoSugerido)}" data-ocr-codigo="${p.id}" style="flex:2;">
+                <input type="number" min="1" value="${p.cantidad}" data-ocr-cantidad="${p.id}" style="flex:1;">
+              </div>
+            </div>
+          `).join('')}
+        </div>
+        <button class="btn primary" id="applyOcrPlanBtn">Confirmar</button>
+        <button class="btn ghost-danger" id="cancelOcrPlanBtn">Cancelar</button>
+      </div>
+    ` : '';
+
+    const materialFaltanteHtml = (target.materialesFaltantes||[]).length ? `
+      <div class="ticket" style="margin-top:14px; border-left-color:var(--warning);">
+        <div class="ticket-header"><span class="ticket-title">Material faltante (${target.materialesFaltantes.length})</span></div>
+        <div class="ticket-body">
+          ${target.materialesFaltantes.map(f => `
+            <div style="display:flex; align-items:center; gap:10px; padding:11px 14px; border-bottom:1px dashed var(--border);">
+              <div style="flex:1; min-width:0;">
+                <div style="font-weight:700; font-size:13px;">${esc(f.descripcion)}</div>
+                <div style="font-size:11px; color:var(--text-faint); margin-top:2px;">${f.cantidad} uds · proveedor ${esc(f.proveedor)} · ${f.fecha}</div>
+              </div>
+              <button class="cam-btn" data-pedir-faltante="${f.id}" style="padding:6px 10px; font-size:11px; min-height:auto;">Pedir</button>
+              <button class="btn-return" data-quitar-faltante="${f.id}" style="padding:6px 10px; font-size:11px; min-height:auto;">Quitar</button>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    ` : '';
+
     const nDocs = (target.documentos||[]).length;
     const documentosHtml = `
       <div class="ticket" style="margin-top:14px;">
@@ -5185,8 +5401,18 @@
       </div>
     `;
 
-    el.innerHTML = selectorHtml + tabs + bodyHtml + pendienteHtml + documentosHtml;
+    el.innerHTML = selectorHtml + tabs + bodyHtml + pendienteHtml + ocrPlanHtml + materialFaltanteHtml + documentosHtml;
     wireTrabajoSelector(el);
+    const applyOcrPlanBtn = $('#applyOcrPlanBtn');
+    if(applyOcrPlanBtn) applyOcrPlanBtn.addEventListener('click', applyOcrPlan);
+    const cancelOcrPlanBtn = $('#cancelOcrPlanBtn');
+    if(cancelOcrPlanBtn) cancelOcrPlanBtn.addEventListener('click', cancelOcrPlan);
+    el.querySelectorAll('[data-pedir-faltante]').forEach(btn=>{
+      btn.addEventListener('click', ()=> pedirMaterialFaltante(btn.dataset.pedirFaltante));
+    });
+    el.querySelectorAll('[data-quitar-faltante]').forEach(btn=>{
+      btn.addEventListener('click', ()=> quitarMaterialFaltante(btn.dataset.quitarFaltante));
+    });
     const toggleDocumentosBtn = $('#toggleDocumentosBtn');
     if(toggleDocumentosBtn) toggleDocumentosBtn.addEventListener('click', ()=>{
       mostrarDocumentosTrabajo = !mostrarDocumentosTrabajo;
@@ -5199,7 +5425,7 @@
     el.querySelectorAll('[data-ver-doc]').forEach(btn=>{
       btn.addEventListener('click', ()=>{
         const doc = (target.documentos||[]).find(d => d.id === btn.dataset.verDoc);
-        if(doc) window.open(doc.dataUrl, '_blank');
+        if(doc) abrirDataUrlComoBlob(doc.dataUrl);
       });
     });
     el.querySelectorAll('[data-del-doc]').forEach(btn=>{
