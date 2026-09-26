@@ -216,15 +216,15 @@ Si una línea no coincide con nada del stock, se da de alta automáticamente com
 Dentro de Trabajo, cada orden/proyecto tiene su propio panel de "Documentos escaneados" — útil para digitalizar un listado de material en papel, un albarán, o cualquier papel que llegue y haya que guardar junto a esa orden en concreto.
 
 - **"Escanear documento"** abre la cámara del móvil, pidiendo resolución alta (hasta 2560×1440) a propósito, para que el texto del papel escaneado se lea bien y no salga borroso. Se puede capturar **varias páginas seguidas** (cada una queda como una miniatura, y se puede tocar una para quitarla antes de terminar).
-- Al pulsar **"Convertir a PDF"**, todas las páginas capturadas se juntan en un único PDF, que queda guardado y enlazado a esa orden/proyecto — no a ninguna otra.
-- Desde el propio panel se puede **"Ver"** el PDF en una pestaña nueva, o **"Eliminar"** el documento. Al verlo, se convierte primero en un archivo real (Blob) antes de abrirlo — los navegadores de escritorio bloquean por seguridad abrir directamente el enlace largo con el que se guarda el PDF.
+- Cada página capturada se **recorta sola**: la app detecta el contraste entre la hoja y la superficie de debajo y quita el borde sobrante automáticamente. Si no encuentra un borde claro (por ejemplo, la hoja ya ocupa todo el encuadre), deja la foto tal cual, sin forzar el recorte.
+- Al terminar de capturar todas las páginas, hay que elegir el **proveedor** (JULMATIC, INOXPA o BIONET) y pulsar **"Terminar documento"**: en un solo paso, junta las páginas en un único PDF (guardado y enlazado a esa orden/proyecto — no a ninguna otra) y a continuación reconoce el texto para el apartado de material, sin pasos intermedios.
+- Desde el panel de "Documentos escaneados" se puede **"Ver"** el PDF en una pestaña nueva, o **"Eliminar"** el documento. Al verlo, se convierte primero en un archivo real (Blob) antes de abrirlo — los navegadores de escritorio bloquean por seguridad abrir directamente el enlace largo con el que se guarda el PDF.
 - Se guardan hasta 20 documentos por orden/proyecto; a partir de ahí, los más antiguos se van sustituyendo.
 
 ### Reconocer material del documento (OCR)
 
-Además de convertir las páginas capturadas en PDF, se puede pulsar **"Reconocer material"** para que la app lea el texto del documento (reconocimiento de texto en el propio navegador, sin servidor) y ayude a darlo por **Servido** en esa orden, como si ya se hubiera entregado — útil para digitalizar un albarán de proveedor que ya se ha usado.
+Como parte de **"Terminar documento"**, la app lee el texto del documento (reconocimiento de texto en el propio navegador, sin servidor) y ayuda a darlo por **Servido** en esa orden, como si ya se hubiera entregado — útil para digitalizar un albarán de proveedor que ya se ha usado.
 
-- Antes de reconocer, hay que elegir el **proveedor** (JULMATIC, INOXPA o BIONET) — aplica a todo el documento.
 - **La app nunca decide sola si una línea es un artículo del stock o no** — reconoce el texto y lo enseña, línea a línea, en el mismo orden en que aparece en la hoja, para que la persona escriba (o confirme) el código real de cada una antes de aplicar nada.
 - Si una línea ya se relacionó antes con un código (en cualquier orden anterior), la app lo recuerda y lo sugiere solo — sigue siendo editable, no se aplica sin revisar.
 - Al confirmar: las líneas con un código válido **se sirven de verdad y descuentan stock real**. Las que se dejen en blanco **no crean ningún artículo nuevo** — pasan a un apartado de **"Material faltante"** dentro de esa misma orden, visible para cualquiera que la abra, con la cantidad, el proveedor y la fecha.
